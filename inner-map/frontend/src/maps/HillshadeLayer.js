@@ -52,20 +52,28 @@ async function loadDemTile(source, z, x, y) {
       }
     }
     const grid = blob ? await decode(blob).catch(() => null) : null;
-    remember(key, grid);
+    if (grid) remember(key, grid); // missing tiles are tried again later (e.g. back online)
     return grid;
   })().finally(() => pending.delete(key));
   pending.set(key, job);
   return job;
 }
 
-/** Elevation grid for any display tile (deeper zooms are sampled from the deepest DEM tile). */
+/**
+ * Elevation grid for any display tile. Uses the tile itself when available; otherwise (deeper
+ * zooms, or offline with only lower zooms downloaded) samples the nearest stored ancestor tile.
+ */
 async function demGrid(source, z, x, y) {
-  const maxZ = source.maxDataZoom;
-  if (z <= maxZ) return loadDemTile(source, z, x, y);
-  const f = 2 ** (z - maxZ);
-  const parent = await loadDemTile(source, maxZ, Math.floor(x / f), Math.floor(y / f));
-  if (!parent) return null;
+  const start = Math.min(z, source.maxDataZoom);
+  for (let pz = start; pz >= Math.max(0, start - 6); pz -= 1) {
+    const f = 2 ** (z - pz);
+    const parent = await loadDemTile(source, pz, Math.floor(x / f), Math.floor(y / f));
+    if (parent) return pz === z ? parent : resample(parent, x, y, f);
+  }
+  return null;
+}
+
+function resample(parent, x, y, f) {
   const ox = (x % f) * (SIZE / f);
   const oy = (y % f) * (SIZE / f);
   const grid = new Float32Array(SIZE * SIZE);
@@ -89,17 +97,21 @@ async function demGrid(source, z, x, y) {
 
 /** Elevation in metres at a point (uses the DEM tile at zoom <= 15), or null if unavailable. */
 export async function elevationAt(source, lat, lng, zoom = 14) {
-  const z = Math.min(source.maxDataZoom, Math.max(0, Math.round(zoom)));
-  const n = 2 ** z;
-  const fx = ((lng + 180) / 360) * n;
+  const start = Math.min(source.maxDataZoom, Math.max(0, Math.round(zoom)));
   const r = (lat * Math.PI) / 180;
-  const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
-  const grid = await loadDemTile(source, z, Math.floor(fx), Math.floor(fy));
-  if (!grid) return null;
-  const i = Math.min(SIZE - 1, Math.floor((fx % 1) * SIZE));
-  const j = Math.min(SIZE - 1, Math.floor((fy % 1) * SIZE));
-  const v = grid[j * SIZE + i];
-  return Number.isFinite(v) && v > -12000 ? v : null;
+  // Try the requested zoom, then lower zooms (e.g. offline with only those downloaded).
+  for (let z = start; z >= Math.max(0, start - 6); z -= 1) {
+    const n = 2 ** z;
+    const fx = ((lng + 180) / 360) * n;
+    const fy = ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n;
+    const grid = await loadDemTile(source, z, Math.floor(fx), Math.floor(fy));
+    if (!grid) continue;
+    const i = Math.min(SIZE - 1, Math.floor((fx % 1) * SIZE));
+    const j = Math.min(SIZE - 1, Math.floor((fy % 1) * SIZE));
+    const v = grid[j * SIZE + i];
+    return Number.isFinite(v) && v > -12000 ? v : null;
+  }
+  return null;
 }
 
 function shade(grid, z, y) {

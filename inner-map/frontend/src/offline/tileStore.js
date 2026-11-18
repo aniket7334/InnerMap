@@ -61,6 +61,29 @@ export async function readTileBytes(rec) {
  * Remove regionId from every tile it references; delete tiles nobody references any more.
  * Returns bytes actually freed.
  */
+/** Like releaseRegion, but only for tiles of one layer (e.g. remove a satellite pack). */
+export async function releaseRegionLayer(regionId, layerId) {
+  const db = await getDB();
+  let freed = 0;
+  const tx = db.transaction('tiles', 'readwrite');
+  let cursor = await tx.store.index('regions').openCursor(IDBKeyRange.only(regionId));
+  while (cursor) {
+    const rec = cursor.value;
+    if (String(rec.key).startsWith(`${layerId}/`)) {
+      rec.regions = rec.regions.filter((r) => r !== regionId);
+      if (rec.regions.length === 0) {
+        freed += rec.size || 0;
+        await cursor.delete();
+      } else {
+        await cursor.update(rec);
+      }
+    }
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  return freed;
+}
+
 export async function releaseRegion(regionId) {
   const db = await getDB();
   let freed = 0;

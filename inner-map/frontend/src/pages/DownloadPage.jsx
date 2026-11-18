@@ -11,8 +11,8 @@ import ProgressBar from '../components/ProgressBar';
 import Icon from '../components/Icon';
 import { DOWNLOAD_LIMITS, attributionText } from '../maps/providers';
 import { boundsAround, boundsAreaKm2, boundsIntersection, toBoundsObject } from '../maps/tileMath';
-import { estimateDownload, startDownload, cancelDownload } from '../offline/downloadManager';
-import { formatBytes } from '../offline/storage';
+import { estimateDownload, startDownload, cancelDownload, pauseDownload, estimatePack, PACKS } from '../offline/downloadManager';
+import { formatBytes, getStorageEstimate } from '../offline/storage';
 import { searchPlaces } from '../services/geocodeService';
 import { fetchRoutingInfo } from '../services/routingApi';
 
@@ -31,6 +31,12 @@ function boundsFromParams(params) {
   const [south, west, north, east] = values;
   return south < north && west < east ? { south, west, north, east } : null;
 }
+
+const PREVIEWS = [
+  { id: 'default', label: 'Map' },
+  { id: 'satellite', label: 'Satellite' },
+  { id: 'terrain', label: 'Terrain' },
+];
 
 const sameBounds = (a, b) =>
   a && b && a.south === b.south && a.north === b.north && a.west === b.west && a.east === b.east;
@@ -81,6 +87,14 @@ export default function DownloadPage() {
       .catch(() => setRoutingInfo(null));
   }, [status]);
   const mapRef = useRef(null);
+  // Preview of the area before downloading (a live view of the source, not a stored picture).
+  const [preview, setPreview] = useState('default');
+  // Optional data packs.
+  const [packs, setPacks] = useState({ satellite: false, terrain: false });
+  const [storageInfo, setStorageInfo] = useState(null);
+  useEffect(() => {
+    getStorageEstimate().then(setStorageInfo).catch(() => {});
+  }, [regions.length]);
 
   // Server coverage can arrive after the first render (metadata request).
   useEffect(() => {
@@ -100,7 +114,8 @@ export default function DownloadPage() {
   }, [provider.id]);
 
   const job = regions.find((r) => r.id === startedId) || regions.find((r) => r.status === 'downloading');
-  const busy = job?.status === 'downloading';
+  const activePack = Object.entries(job?.packs || {}).find(([, p]) => p.status === 'downloading');
+  const busy = job?.status === 'downloading' || Boolean(activePack);
 
   // Vector data only exists inside the server's PMTiles area: download just that overlap.
   const target = selection && serverArea ? boundsIntersection(selection, serverArea) : selection;
@@ -112,7 +127,16 @@ export default function DownloadPage() {
     () => (target ? estimateDownload(provider, target, zoomMin, effectiveMax) : { tiles: 0, bytes: 0 }),
     [provider, target, zoomMin, effectiveMax]
   );
-  const tooBig = estimate.tiles > DOWNLOAD_LIMITS.maxTilesPerDownload;
+  const packEstimates = useMemo(() => {
+    const out = {};
+    for (const id of Object.keys(PACKS)) out[id] = target ? estimatePack(id, target, zoomMin, null) : { tiles: 0, bytes: 0 };
+    return out;
+  }, [target, zoomMin]);
+  const chosenPacks = Object.keys(PACKS).filter((id) => packs[id] && PACKS[id].source.offlineAllowed);
+  const totalTiles = estimate.tiles + chosenPacks.reduce((n, id) => n + packEstimates[id].tiles, 0);
+  const totalBytes = estimate.bytes + chosenPacks.reduce((n, id) => n + packEstimates[id].bytes, 0);
+  const tooBig = totalTiles > DOWNLOAD_LIMITS.maxTilesPerDownload;
+  const lowStorage = storageInfo?.available != null && totalBytes > storageInfo.available * 0.9;
   // Our own server's tiles need the API reachable; other providers just need internet.
   const sourceReachable = provider.servedByApp ? status === 'online' : status !== 'offline';
 
@@ -127,6 +151,7 @@ export default function DownloadPage() {
     target &&
     name.trim() &&
     !tooBig &&
+    !lowStorage &&
     !busy &&
     zoomMin <= effectiveMax;
 
@@ -203,6 +228,7 @@ export default function DownloadPage() {
         zoomMax: effectiveMax,
         providerId: provider.id,
         withRouting: routingAvailable && withRouting,
+        packs: chosenPacks,
       });
       setStartedId(region.id);
     } catch (err) {
@@ -219,9 +245,25 @@ export default function DownloadPage() {
         selection={selection}
         regions={regions}
         fitTo={fitTo}
+        view={preview}
         onReady={(m) => (mapRef.current = m)}
         onClick={onMapClick}
       >
+        <div className="preview-switch" role="radiogroup" aria-label="Preview">
+          <span className="preview-switch-label">Preview</span>
+          {PREVIEWS.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              role="radio"
+              aria-checked={preview === p.id}
+              className={preview === p.id ? 'active' : ''}
+              onClick={() => setPreview(p.id)}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
         {mode === 'draw' && (
           <div className="map-hint">{firstCorner ? 'Click the opposite corner' : 'Click the first corner of the area'}</div>
         )}
@@ -401,6 +443,50 @@ export default function DownloadPage() {
         </section>
 
         <section className="panel-section">
+          <span className="section-label">Data to store offline</span>
+          <ul className="pack-list">
+            <li>
+              <strong>Map</strong> <span className="muted small">({provider.label})</span>
+              <span className="pack-size">~{formatBytes(estimate.bytes)}</span>
+              <small className="muted block">
+                {isVector
+                  ? 'Roads, streets, buildings (outlines), place names, shops, restaurants and other points of interest from OpenStreetMap.'
+                  : 'Map pictures for the chosen zoom levels.'}
+              </small>
+            </li>
+            {isVector && (
+              <li>
+                <strong>Place and business search</strong>
+                <span className="pack-size">built on this device</span>
+                <small className="muted block">Made from the map data after download; no extra download. Only names that exist in the data.</small>
+              </li>
+            )}
+            {Object.entries(PACKS).map(([id, def]) => {
+              const est = packEstimates[id];
+              const allowed = def.source.offlineAllowed;
+              return (
+                <li key={id}>
+                  <label className="check">
+                    <input type="checkbox" checked={Boolean(packs[id]) && allowed} disabled={!allowed} onChange={(e) => setPacks((p) => ({ ...p, [id]: e.target.checked }))} />
+                    <span>
+                      <strong>{def.label}</strong>
+                      <small className="muted block">
+                        {id === 'satellite'
+                          ? `${def.source.label}${def.source.resolution ? `, ${def.source.resolution}` : ''}${def.source.imageryDate ? `, ${def.source.imageryDate}` : ''}.${def.source.licenceNote ? ` ${def.source.licenceNote}.` : ''}`
+                          : 'Elevation for hill shading in the Terrain view (SRTM and other open data).'}
+                        {target && est.tiles ? ` Zoom ${est.zFrom}–${est.zTo}, deeper zooms are drawn from it.` : ''}
+                        {!allowed ? ' Downloading is not allowed for this source.' : ''}
+                      </small>
+                    </span>
+                  </label>
+                  <span className="pack-size">{target ? `~${formatBytes(est.bytes)}` : '–'}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+
+        <section className="panel-section">
           <div className="estimate">
             {target ? (
               <>
@@ -410,12 +496,18 @@ export default function DownloadPage() {
                 </div>
                 <div>
                   <span className="muted small">Tiles</span>
-                  <strong className={tooBig ? 'error-text' : ''}>{estimate.tiles.toLocaleString()}</strong>
+                  <strong className={tooBig ? 'error-text' : ''}>{totalTiles.toLocaleString()}</strong>
                 </div>
                 <div>
                   <span className="muted small">Est. size</span>
-                  <strong>~{formatBytes(estimate.bytes)}</strong>
+                  <strong className={lowStorage ? 'error-text' : ''}>~{formatBytes(totalBytes)}</strong>
                 </div>
+                {storageInfo?.available != null && (
+                  <div>
+                    <span className="muted small">Free storage</span>
+                    <strong>{formatBytes(storageInfo.available)}</strong>
+                  </div>
+                )}
               </>
             ) : (
               <span className="muted small">No area selected yet.</span>
@@ -430,6 +522,7 @@ export default function DownloadPage() {
           {clipped && !outsideServerArea && (
             <p className="muted small">Only the part inside the server’s data area will be downloaded.</p>
           )}
+          {lowStorage && <p className="error-text small">Not enough free browser storage for this selection. Untick a pack, choose a smaller area or delete other offline maps.</p>}
           {tooBig && (
             <p className="error-text small">
               Too many tiles (limit {DOWNLOAD_LIMITS.maxTilesPerDownload.toLocaleString()}). Make the area smaller or
@@ -441,15 +534,38 @@ export default function DownloadPage() {
             <div className="job">
               <div className="row between">
                 <strong>Downloading “{job.name}”</strong>
-                <button className="btn btn-danger-soft btn-sm" onClick={() => cancelDownload(job.id)}>
-                  Cancel
-                </button>
+                <span className="row">
+                  <button className="btn btn-sm" onClick={() => pauseDownload(job.id)}>
+                    Pause
+                  </button>
+                  <button className="btn btn-danger-soft btn-sm" onClick={() => cancelDownload(job.id)}>
+                    Cancel
+                  </button>
+                </span>
               </div>
-              <ProgressBar value={job.doneCount} max={job.tileCount} label="Download progress" />
-              <div className="muted small">
-                {job.doneCount.toLocaleString()} / {job.tileCount.toLocaleString()} tiles · {formatBytes(job.size)}
-                {job.failedCount > 0 && ` · ${job.failedCount} failed`}
-              </div>
+              {activePack ? (
+                <>
+                  <ProgressBar value={activePack[1].doneCount} max={activePack[1].tileCount} label={`${PACKS[activePack[0]]?.label} progress`} />
+                  <div className="muted small">
+                    {PACKS[activePack[0]]?.label}: {activePack[1].doneCount.toLocaleString()} / {activePack[1].tileCount.toLocaleString()} tiles ·{' '}
+                    {formatBytes(activePack[1].size)}
+                    {activePack[1].failedCount > 0 && ` · ${activePack[1].failedCount} failed`}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <ProgressBar value={job.doneCount} max={job.tileCount} label="Download progress" />
+                  <div className="muted small">
+                    Map: {job.doneCount.toLocaleString()} / {job.tileCount.toLocaleString()} tiles · {formatBytes(job.size)}
+                    {job.failedCount > 0 && ` · ${job.failedCount} failed`}
+                  </div>
+                </>
+              )}
+              {Object.keys(job.packs || {}).length > 0 && (
+                <p className="muted small">
+                  Then: {Object.entries(job.packs).map(([id, p]) => `${PACKS[id]?.label || id} (${p.tileCount.toLocaleString()} tiles)`).join(', ')}
+                </p>
+              )}
               <p className="muted tiny">You can keep using the app - the download continues in the background.</p>
             </div>
           ) : (
@@ -461,7 +577,7 @@ export default function DownloadPage() {
           {job && !busy && job.id === startedId && (
             <Alert tone={job.status === 'completed' ? 'success' : 'warning'}>
               {job.status === 'completed'
-                ? `“${job.name}” is ready offline (${formatBytes(job.size)}).`
+                ? `“${job.name}” map is ready offline (${formatBytes(job.size)}).${Object.keys(job.packs || {}).length ? ' Data packs continue downloading - see Offline maps.' : ''}`
                 : job.error || `Download ${job.status}.`}{' '}
               <Link to="/my-maps">Open offline maps</Link>
             </Alert>
@@ -469,7 +585,7 @@ export default function DownloadPage() {
         </section>
         <p className="panel-foot">
           Source: {provider.label}. Map data {attributionText(provider)}. Only the areas you download are available
-          offline.
+          offline. The preview shows the live source; what is stored is the data listed above, not a picture.
         </p>
       </aside>
     </div>

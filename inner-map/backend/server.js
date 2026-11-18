@@ -16,7 +16,13 @@ app.use(
     origin(origin, cb) {
       // Allow same-origin / curl requests (no Origin header) and whitelisted front-ends.
       if (!origin || config.corsOrigins.includes(origin)) return cb(null, true);
-      return cb(new Error(`Origin ${origin} is not allowed by CORS`));
+      // Development: any local dev server port (Vite moves to 5174, 5175... when 5173 is busy).
+      if (config.nodeEnv !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+$/.test(origin)) {
+        return cb(null, true);
+      }
+      const err = new Error(`Origin ${origin} is not allowed. Add it to CORS_ORIGINS in backend/.env.`);
+      err.status = 403; // a clear client error instead of "Internal server error"
+      return cb(err);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],

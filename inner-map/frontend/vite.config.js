@@ -1,0 +1,30 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
+
+// The React app calls the API with relative URLs (/api/...). Vite forwards them to
+// the Express server, so the browser sees one origin (no CORS issues, and the
+// service worker can treat everything under "/" as the app).
+const proxy = {
+  '/api': { target: 'http://localhost:5000', changeOrigin: true },
+  '/tiles': { target: 'http://localhost:5000', changeOrigin: true },
+  '/globe-data': { target: 'http://localhost:5000', changeOrigin: true },
+};
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 5173,
+    proxy,
+    // ../shared holds the routing engine used by both the browser and the backend.
+    fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
+  },
+  preview: { port: 4173, proxy },
+  worker: { format: 'es' },
+  build: {
+    // Keep every 2D page in the main bundle so the service worker caches the whole app on the
+    // first visit. The 3D globe (CesiumJS, ~4 MB) is a separate chunk loaded only when opened,
+    // which is why the warning limit is high.
+    chunkSizeWarningLimit: 4500,
+  },
+});

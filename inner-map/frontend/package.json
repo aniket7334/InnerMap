@@ -1,0 +1,31 @@
+{
+  "name": "inner-map-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "predev": "node scripts/copy-cesium-assets.mjs",
+    "build": "vite build",
+    "prebuild": "node scripts/copy-cesium-assets.mjs",
+    "preview": "vite preview",
+    "cesium:assets": "node scripts/copy-cesium-assets.mjs"
+  },
+  "dependencies": {
+    "@protomaps/basemaps": "^5.7.2",
+    "@tmcw/togeojson": "^7.1.4",
+    "axios": "^1.7.9",
+    "cesium": "^1.147.0",
+    "idb": "^8.0.1",
+    "jszip": "^3.10.2",
+    "leaflet": "^1.9.4",
+    "protomaps-leaflet": "^5.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

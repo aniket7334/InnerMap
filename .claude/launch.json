@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["inner-map/backend/server.js"],
+      "port": 5000
+    },
+    {
+      "name": "frontend-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["inner-map/frontend/node_modules/vite/bin/vite.js", "preview", "inner-map/frontend", "--port", "4173", "--strictPort"],
+      "port": 4173
+    }
+  ]
+}

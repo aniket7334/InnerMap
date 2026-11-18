@@ -10,6 +10,7 @@ import { useLocation } from '../hooks/LocationContext';
 import { useMapProvider } from '../hooks/ProviderContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useAuth } from '../hooks/AuthContext';
+import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { formatCoord, describeGeometry, WORLD_VIEW } from './geo';
 
@@ -67,8 +68,8 @@ function featureLayer(collection) {
   });
 }
 
-function createBaseLayer(provider) {
-  return provider.kind === 'vector' ? createVectorTileLayer(provider) : createOfflineTileLayer(provider);
+function createBaseLayer(provider, typography) {
+  return provider.kind === 'vector' ? createVectorTileLayer(provider, typography) : createOfflineTileLayer(provider);
 }
 
 function describeBounds(b) {
@@ -159,6 +160,10 @@ export default function MapView({
   const { provider, coverage } = useMapProvider();
   const { status, lastChecked } = useConnectivity();
   const { user } = useAuth();
+  const { settings: typography, mapLabelKey } = useTypography();
+  const showSavedLabels = typography.mapLabels.showSavedLabels;
+  const typographyRef = useRef(typography);
+  typographyRef.current = typography;
   const { regions: deviceRegions } = useRegions(user?.id);
   const [center, setCenter] = useState(null);
   const [cursor, setCursor] = useState(null);
@@ -181,7 +186,9 @@ export default function MapView({
 
   // Rebuild the base layer when connectivity flips or a download finishes, so tiles that
   // were empty before are fetched again (protomaps-leaflet caches tile data in memory).
-  const refreshKey = `${provider.id}|${reachable}|${storedRegions
+  // Vector labels are drawn into the tiles, so label typography changes also rebuild the layer
+  // (raster tiles have their labels baked in and ignore it).
+  const refreshKey = `${provider.id}|${reachable}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
     .filter((r) => r.status !== 'downloading')
     .map((r) => `${r.id}:${r.status}`)
     .join(',')}`;
@@ -251,7 +258,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return undefined;
-    const layer = createBaseLayer(provider).addTo(map);
+    const layer = createBaseLayer(provider, typographyRef.current).addTo(map);
     layer.bringToBack();
     return () => {
       map.removeLayer(layer);
@@ -368,11 +375,16 @@ export default function MapView({
     if (!layer) return;
     layer.clearLayers();
     places.forEach((p) => {
-      L.marker([p.latitude, p.longitude], { icon: placeIcon, title: p.name })
-        .bindPopup(placePopup(p))
-        .addTo(layer);
+      const marker = L.marker([p.latitude, p.longitude], { icon: placeIcon, title: p.name }).bindPopup(placePopup(p));
+      // Name label next to the pin; size/font come from the map typography CSS variables.
+      if (showSavedLabels && p.name) {
+        const text = document.createElement('span');
+        text.textContent = p.name; // DOM text, never HTML
+        marker.bindTooltip(text, { permanent: true, direction: 'right', offset: [10, -20], className: 'place-label', opacity: 1 });
+      }
+      marker.addTo(layer);
     });
-  }, [places]);
+  }, [places, showSavedLabels]);
 
   // Imported (KML/KMZ/GeoJSON) and drawn markers, paths and polygons.
   useEffect(() => {

@@ -7,7 +7,7 @@
  *
  * Bump CACHE_VERSION when you change this file's caching rules.
  */
-const CACHE_VERSION = 'v3';
+const CACHE_VERSION = 'v4'; // v4: precache bundled font files
 const SHELL_CACHE = `inner-map-shell-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/index.html', '/manifest.json', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
 
@@ -20,6 +20,17 @@ async function discoverBuildAssets() {
     const re = /(?:src|href)="(\/assets\/[^"]+)"/g;
     let m;
     while ((m = re.exec(html))) urls.add(m[1]);
+    // Bundled fonts (typography settings) are referenced from the CSS; precache the
+    // .woff2 files so any font can be selected later while offline.
+    for (const css of [...urls].filter((u) => u.endsWith('.css'))) {
+      try {
+        const text = await (await fetch(css)).text();
+        const fontRe = /url\((?:["']?)(\/assets\/[^)"']+\.woff2)(?:["']?)\)/g;
+        while ((m = fontRe.exec(text))) urls.add(m[1]);
+      } catch {
+        /* fonts will still be cached on first use */
+      }
+    }
     return [...urls];
   } catch {
     return [];

@@ -15,6 +15,7 @@ import { listAllRegionIds } from '../offline/regionStore';
 import { formatBytes, getStorageEstimate, isPersisted, requestPersistentStorage } from '../offline/storage';
 import { listServerMaps, deleteServerMap } from '../services/mapService';
 import { errorMessage } from '../services/api';
+import { confirmDialog } from '../components/ConfirmDialog';
 
 const STATUS_LABEL = {
   downloading: 'Downloading',
@@ -62,7 +63,7 @@ export default function MyMapsPage() {
   }, [refreshServer, status, regions.length]);
 
   const onDelete = async (r) => {
-    if (!window.confirm(`Delete “${r.name}” from this device? You will need internet to download it again.`)) return;
+    if (!(await confirmDialog({ title: 'Delete offline map?', message: `Delete “${r.name}” from this device? You will need internet to download it again.`, confirmLabel: 'Delete', danger: true }))) return;
     setBusyId(r.id);
     try {
       const freed = await deleteRegion(r.id);
@@ -129,7 +130,7 @@ export default function MyMapsPage() {
   const usedPct = storage?.quota ? Math.round((storage.usage / storage.quota) * 100) : null;
 
   return (
-    <div className="workspace">
+    <div className="workspace page-offline-maps">
       <div className="workspace-map">
         <MapView className="map-fill" regions={regions} fitTo={fitTo} showLocateButton={false} />
       </div>

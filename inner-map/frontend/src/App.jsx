@@ -3,6 +3,10 @@ import { AuthProvider } from './hooks/AuthContext';
 import { ConnectivityProvider } from './hooks/ConnectivityContext';
 import { LocationProvider } from './hooks/LocationContext';
 import { ProviderProvider } from './hooks/ProviderContext';
+import { TypographyProvider } from './hooks/TypographyContext';
+import { ConfirmHost } from './components/ConfirmDialog';
+// Locally bundled fonts for the typography settings (no external font service).
+import './typography/fonts';
 import ProtectedRoute from './components/ProtectedRoute';
 import AppLayout from './layouts/AppLayout';
 import PublicLayout from './layouts/PublicLayout';
@@ -19,6 +23,7 @@ import GlobeLoader from './components/GlobeLoader';
 // Registers the layer/feature sync handlers before the first outbox flush.
 import './services/featureService';
 import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 export default function App() {
@@ -27,6 +32,7 @@ export default function App() {
       <ConnectivityProvider>
         <LocationProvider>
           <ProviderProvider>
+          <TypographyProvider>
           <BrowserRouter>
             <Routes>
               <Route element={<PublicLayout />}>
@@ -49,11 +55,14 @@ export default function App() {
                 <Route path="/layers" element={<LayersPage />} />
                 <Route path="/globe" element={<GlobeLoader />} />
                 <Route path="/profile" element={<ProfilePage />} />
+                <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="/home" element={<Navigate to="/" replace />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
+            <ConfirmHost />
           </BrowserRouter>
+          </TypographyProvider>
           </ProviderProvider>
         </LocationProvider>
       </ConnectivityProvider>

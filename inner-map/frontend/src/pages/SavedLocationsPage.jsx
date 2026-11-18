@@ -9,6 +9,7 @@ import Icon from '../components/Icon';
 import { distanceMeters, formatCoord, formatDistance } from '../maps/geo';
 import { buildKml, kmlBlob, kmzBlob, downloadBlob, savedLocationsToFeatures, featuresBounds } from '../features/kml';
 import { useInitialFit } from '../hooks/useInitialFit';
+import { confirmDialog } from '../components/ConfirmDialog';
 
 /** Download the saved places as a Google Earth compatible KML or KMZ file. */
 async function exportLocations(locations, format) {
@@ -73,7 +74,7 @@ export default function SavedLocationsPage() {
   };
 
   const onDelete = async (loc) => {
-    if (!window.confirm(`Delete “${loc.name}”?`)) return;
+    if (!(await confirmDialog({ title: 'Delete saved place?', message: `Delete “${loc.name}”?`, confirmLabel: 'Delete', danger: true }))) return;
     await remove(loc.localId);
   };
 

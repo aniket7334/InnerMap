@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS downloaded_maps (
 ) ENGINE=InnoDB;
 
 -- -------------------------------------------------------------
--- user_preferences  (map provider + default view; also in migrations/002)
+-- user_preferences  (map provider + default view + typography; also in migrations/002, 004)
 -- -------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_preferences (
   user_id               INT UNSIGNED NOT NULL,
@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
   default_lng           DECIMAL(10,7) NULL,
   default_zoom          TINYINT UNSIGNED NULL,
   show_downloaded_areas TINYINT(1)   NOT NULL DEFAULT 1,
+  typography            TEXT         NULL DEFAULT NULL,   -- JSON font settings (migration 004)
   updated_at            DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (user_id),
   CONSTRAINT fk_user_preferences_user FOREIGN KEY (user_id)

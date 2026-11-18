@@ -7,6 +7,7 @@
 //   2. Network available?               -> fetch it from the Inner Map server
 //   3. Otherwise                        -> no data (the map shows a "Not downloaded" notice)
 import { leafletLayer } from 'protomaps-leaflet';
+import { vectorStyle } from '../typography/mapLabels';
 import { tileKey } from './tileMath';
 import { buildTileUrl } from './providers';
 import { getTile, readTileBytes } from '../offline/tileStore';
@@ -48,10 +49,15 @@ export class LocalFirstVectorSource {
   }
 }
 
-export function createVectorTileLayer(provider) {
+/**
+ * @param provider  vector provider definition
+ * @param typography  optional typography settings: label size/family per category
+ *                    (see typography/mapLabels.js). Without it the stock style is used.
+ */
+export function createVectorTileLayer(provider, typography) {
   return leafletLayer({
     url: new LocalFirstVectorSource(provider),
-    flavor: 'light',
+    ...vectorStyle(typography),
     lang: 'en',
     maxDataZoom: provider.maxDataZoom,
     minZoom: provider.minZoom,

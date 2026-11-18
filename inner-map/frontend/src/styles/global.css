@@ -27,21 +27,43 @@
   --success-weak: #e7f3ec;
   --focus: #2563eb;
 
-  /* type */
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  /* type - see "typography system" below; values are set at runtime by
+     src/typography/applyTypography.js from the user's settings */
+  --app-font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --app-font-size: 14px;
+  --app-scale: 1;
+  --font: var(--app-font-family);
   --mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Consolas, monospace;
-  --fs-xs: 11.5px;
-  --fs-sm: 12.5px;
-  --fs-base: 14px;
-  --fs-md: 15px;
-  --fs-lg: 18px;
-  --fs-xl: 22px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --app-font-weight: var(--fw-regular);
+  --app-line-height: 1.45;
+  --app-letter-spacing: normal;
+  /* per-section multipliers (1 = follow the global size) */
+  --scale-sidebar: 1;
+  --scale-nav: 1;
+  --scale-toolbar: 1;
+  --scale-buttons: 1;
+  --scale-search: 1;
+  --scale-location: 1;
+  --scale-offline-maps: 1;
+  --scale-navigation: 1;
+  --scale-settings: 1;
+  --scale-dialogs: 1;
+  --scale-notifications: 1;
+  --sec-scale: 1;
+  --el-scale: 1;
+  /* map labels */
+  --map-label-family: var(--app-font-family);
+  --map-label-saved-size: 12px;
 
   /* shape & space */
   --r-sm: 4px;
   --r: 6px;
   --control-h: 32px;
-  --toolbar-h: 48px;
+  --toolbar-h: max(48px, calc(14px * var(--app-scale) * var(--scale-toolbar) * 3.3));
   --sidebar-w: 240px;
   --panel-w: 360px;
   --bottom-nav-h: 56px;
@@ -50,6 +72,9 @@
   color-scheme: light;
   font-family: var(--font);
   font-size: var(--fs-base);
+  font-weight: var(--app-font-weight);
+  line-height: var(--app-line-height);
+  letter-spacing: var(--app-letter-spacing);
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -80,6 +105,87 @@
   }
 }
 
+/* ---------- typography system ----------
+   One type scale, re-resolved in each scalable section so a section multiplier
+   (e.g. --scale-sidebar) only affects that part of the interface. Icons are SVGs
+   with fixed pixel sizes and are not affected. */
+:root,
+.toolbar,
+.sidebar,
+.preview-sidebar,
+.nav-item,
+.bottom-nav,
+.more-sheet,
+.search,
+.btn,
+.location-panel,
+.page-offline-maps,
+.route-panel,
+.page-settings,
+.confirm-dialog,
+.alert,
+.map-notice,
+.gps-readout {
+  --fs-unit: calc(var(--app-scale) * var(--sec-scale) * var(--el-scale));
+  --fs-xs: calc(11.5px * var(--fs-unit));
+  --fs-sm: calc(12.5px * var(--fs-unit));
+  --fs-base: calc(14px * var(--fs-unit));
+  --fs-md: calc(15px * var(--fs-unit));
+  --fs-lg: calc(18px * var(--fs-unit));
+  --fs-xl: calc(22px * var(--fs-unit));
+  --control-h: max(32px, calc(var(--fs-base) * 2.3));
+  --control-h-sm: max(28px, calc(var(--fs-base) * 2));
+  --control-h-lg: max(38px, calc(var(--fs-base) * 2.7));
+}
+.sidebar,
+.preview-sidebar { --sec-scale: var(--scale-sidebar); }
+.nav-item,
+.bottom-nav,
+.more-sheet { --sec-scale: var(--scale-nav); }
+.toolbar { --sec-scale: var(--scale-toolbar); }
+.search { --sec-scale: var(--scale-search); }
+.location-panel,
+.gps-readout { --sec-scale: var(--scale-location); }
+.page-offline-maps { --sec-scale: var(--scale-offline-maps); }
+.route-panel { --sec-scale: var(--scale-navigation); }
+.page-settings { --sec-scale: var(--scale-settings); }
+.confirm-dialog { --sec-scale: var(--scale-dialogs); }
+.alert,
+.map-notice { --sec-scale: var(--scale-notifications); }
+.btn { --el-scale: var(--scale-buttons); }
+/* zero specificity: any component rule with its own size wins */
+:where(.toolbar, .sidebar, .bottom-nav, .more-sheet, .search, .location-panel, .page-offline-maps,
+  .route-panel, .page-settings, .confirm-dialog, .alert, .map-notice, .gps-readout) {
+  font-size: var(--fs-base);
+}
+/* "Slightly increased contrast" and "High readability" appearance modes */
+:root[data-contrast='more'] {
+  --text-2: #2c3138;
+  --muted: #4f5560;
+  --border: #cfd4da;
+  --border-strong: #9aa1aa;
+}
+:root[data-contrast='high'] {
+  --text: #0b0d10;
+  --text-2: #1f242a;
+  --muted: #3a4049;
+  --border: #b9bfc7;
+  --border-strong: #6f7782;
+  --app-line-height: 1.6;
+  --app-letter-spacing: 0.012em;
+}
+/* underline text links only - not nav items, buttons or Leaflet's +/- controls */
+:root[data-contrast='high'] a:not(.btn, .nav-item, .bottom-item, .toolbar-brand, .brand, .leaflet-control a, .leaflet-control-zoom-in, .leaflet-control-zoom-out, .leaflet-popup-close-button) {
+  text-decoration: underline;
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-contrast='more'] { --text-2: #d7dbe0; --muted: #b0b6be; --border: #3b424a; --border-strong: #59616b; }
+  :root[data-contrast='high'] { --text: #ffffff; --text-2: #e9ecef; --muted: #c9ced5; --border: #4a525b; --border-strong: #77808b; }
+}
+/* With large text, let buttons and status text wrap instead of overflowing. */
+:root[data-type-large] .btn { white-space: normal; text-align: center; line-height: 1.2; padding-block: 4px; }
+:root[data-type-large] .toolbar-status .status-item.source { display: none; }
+
 *,
 *::before,
 *::after {
@@ -101,7 +207,7 @@ h3,
 h4 {
   margin: 0;
   line-height: 1.25;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 h1 {
   font-size: var(--fs-lg);
@@ -183,7 +289,7 @@ textarea {
   font-size: var(--fs-base);
   color: inherit;
   width: 100%;
-  height: var(--control-h);
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
@@ -204,12 +310,14 @@ input[type='checkbox'],
 input[type='radio'] {
   width: 15px;
   height: 15px;
+  min-height: 0;
   margin: 0;
   accent-color: var(--accent);
   flex-shrink: 0;
 }
 input[type='range'] {
   height: auto;
+  min-height: 0;
   padding: 0;
   border: 0;
   accent-color: var(--accent);
@@ -228,13 +336,13 @@ input:disabled {
   flex-direction: column;
   gap: 4px;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--text-2);
   min-width: 0;
 }
 .field-error {
   color: var(--danger);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 .check,
 .radio-row {
@@ -264,7 +372,7 @@ input:disabled {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: var(--control-h);
+  min-height: var(--control-h);
   padding: 0 12px;
   border-radius: var(--r-sm);
   border: 1px solid var(--border-strong);
@@ -272,7 +380,7 @@ input:disabled {
   color: var(--text);
   font: inherit;
   font-size: var(--fs-base);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   cursor: pointer;
   text-decoration: none !important;
   white-space: nowrap;
@@ -285,12 +393,12 @@ input:disabled {
   cursor: not-allowed;
 }
 .btn-sm {
-  height: 28px;
+  min-height: var(--control-h-sm);
   padding: 0 10px;
   font-size: var(--fs-sm);
 }
 .btn-lg {
-  height: 38px;
+  min-height: var(--control-h-lg);
   padding: 0 16px;
 }
 .btn-block {
@@ -347,7 +455,7 @@ input:disabled {
   padding: 0;
   font: inherit;
   color: var(--accent);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   cursor: pointer;
 }
 .link-btn:hover,
@@ -437,7 +545,7 @@ input:disabled {
 .chip {
   display: inline-block;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   padding: 1px 6px;
   border-radius: 3px;
   border: 1px solid var(--border);
@@ -574,7 +682,7 @@ input:disabled {
   align-items: center;
   gap: 8px;
   width: calc(var(--sidebar-w) - 30px);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: var(--fs-md);
   color: var(--text);
   text-decoration: none !important;
@@ -600,7 +708,7 @@ input:disabled {
 }
 .status-item.gps {
   color: var(--gps);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .conn-online .dot {
   background: var(--success);
@@ -613,7 +721,7 @@ input:disabled {
 }
 .conn-offline {
   color: var(--danger);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .status-item.pending {
   border: 1px solid var(--border-strong);
@@ -633,7 +741,7 @@ input:disabled {
   min-width: 0;
 }
 .search input {
-  height: 32px;
+  min-height: var(--control-h);
   padding-left: 32px;
   background: var(--surface-2);
   border-color: transparent;
@@ -726,7 +834,7 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 32px;
+  min-height: var(--control-h);
   padding: 0 10px;
   border: 0;
   border-radius: var(--r-sm);
@@ -749,7 +857,7 @@ input:disabled {
 .nav-item.active {
   background: var(--accent-weak);
   color: var(--accent);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .nav-item.active .icon {
   color: var(--accent);
@@ -763,7 +871,7 @@ input:disabled {
   justify-content: space-between;
   padding: 0 10px 6px;
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -771,7 +879,7 @@ input:disabled {
 .sidebar-heading .muted {
   text-transform: none;
   letter-spacing: 0;
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 .sidebar-empty {
   padding: 0 10px;
@@ -788,7 +896,7 @@ input:disabled {
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 30px;
+  min-height: max(30px, calc(var(--fs-base) * 2.15));
   padding: 0 10px;
   border: 0;
   border-radius: var(--r-sm);
@@ -992,7 +1100,7 @@ input:disabled {
   font-size: var(--fs-xs) !important;
 }
 .leaflet-control-attribution {
-  font-size: 10.5px !important;
+  font-size: min(calc(10.5px * var(--app-scale)), 12.5px) !important;
 }
 .leaflet-popup-content-wrapper {
   border-radius: var(--r) !important;
@@ -1014,7 +1122,7 @@ input:disabled {
   white-space: pre-wrap;
 }
 .highlight-label {
-  font-weight: 600 !important;
+  font-weight: var(--fw-semibold) !important;
   border-radius: var(--r-sm) !important;
 }
 /* While drawing, every click goes to the map (existing shapes and pins ignore the pointer). */
@@ -1068,6 +1176,25 @@ input:disabled {
   border-radius: 50% 50% 50% 0;
   transform: rotate(-45deg);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+/* Saved-place name labels (Leaflet tooltips) - map typography settings */
+.leaflet-tooltip.place-label {
+  padding: 0 2px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+  color: #7c2d12;
+  font-family: var(--map-label-family);
+  font-size: var(--map-label-saved-size);
+  font-weight: var(--map-label-saved-weight, 600);
+  line-height: 1.2;
+  letter-spacing: normal;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff;
+}
+.leaflet-tooltip.place-label::before {
+  display: none;
 }
 
 /* overlays inside MapView */
@@ -1211,7 +1338,7 @@ input:disabled {
   color: var(--text-2);
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   cursor: pointer;
 }
 .map-ctrl-layers > .ctrl-btn {
@@ -1257,7 +1384,7 @@ input:disabled {
 }
 .ctrl-popover legend {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -1333,7 +1460,7 @@ input:disabled {
   overflow: hidden;
 }
 .gps-state {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .gps-readout.live .gps-state {
   color: var(--gps);
@@ -1432,7 +1559,7 @@ input:disabled {
 }
 .mode-badge {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   padding: 2px 6px;
   border-radius: 3px;
   white-space: nowrap;
@@ -1538,7 +1665,7 @@ input:disabled {
 }
 .route-pref {
   width: auto;
-  height: 28px;
+  min-height: var(--control-h-sm);
   font-size: var(--fs-sm);
   padding: 0 6px;
 }
@@ -1572,7 +1699,7 @@ input:disabled {
 }
 .route-distance {
   font-size: var(--fs-lg);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .route-duration {
   color: var(--text-2);
@@ -1739,12 +1866,12 @@ html.no-scroll body {
 .panel-section h3,
 .panel-section h4 {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   margin: 0;
 }
 .section-label {
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
@@ -1765,7 +1892,7 @@ html.no-scroll body {
   overflow: hidden;
 }
 .tab {
-  height: 28px;
+  min-height: var(--control-h-sm);
   border: 0;
   border-left: 1px solid var(--border-strong);
   background: var(--surface);
@@ -1785,7 +1912,7 @@ html.no-scroll body {
 .tab.active {
   background: var(--accent-weak);
   color: var(--accent);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .tab-panel {
   display: flex;
@@ -1811,7 +1938,7 @@ html.no-scroll body {
 }
 .estimate strong {
   font-variant-numeric: tabular-nums;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .estimate > span {
   padding: 8px 10px;
@@ -1884,7 +2011,7 @@ html.no-scroll body {
 }
 .item-main strong,
 .item-title {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1902,7 +2029,7 @@ html.no-scroll body {
   font-size: var(--fs-sm);
 }
 .item-actions .link-btn {
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 .meta-grid {
   display: grid;
@@ -1965,7 +2092,7 @@ html.no-scroll body {
   flex: 1;
 }
 .layer-name strong {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .layer-actions {
   display: flex;
@@ -1975,7 +2102,7 @@ html.no-scroll body {
   font-size: var(--fs-sm);
 }
 .layer-actions .link-btn {
-  font-weight: 400;
+  font-weight: var(--fw-regular);
 }
 .feature-list {
   list-style: none;
@@ -2170,7 +2297,7 @@ html.no-scroll body {
   border-bottom: 1px solid var(--border);
 }
 .table th {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--muted);
 }
 .consent {
@@ -2197,7 +2324,7 @@ html.no-scroll body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--toolbar-h);
+  min-height: var(--toolbar-h);
   padding: 0 20px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
@@ -2206,7 +2333,7 @@ html.no-scroll body {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: var(--fs-md);
   color: var(--text);
   text-decoration: none !important;
@@ -2230,11 +2357,11 @@ html.no-scroll body {
 }
 .eyebrow {
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--accent);
 }
 .hero h1 {
-  font-size: 32px;
+  font-size: calc(32px * var(--app-scale));
   line-height: 1.15;
   letter-spacing: -0.01em;
   margin: 8px 0 12px;
@@ -2356,6 +2483,10 @@ html.no-scroll body {
   .route-panel.collapsed {
     max-height: none;
   }
+  /* the bottom sheet lives in the tools group: lift that group above the GPS buttons while it is open */
+  .map-ctrl-tools:has(.route-panel) {
+    z-index: 1000;
+  }
 }
 @media (max-width: 480px) {
   .map-ctrl-tools .ctrl-label {
@@ -2419,7 +2550,10 @@ html.no-scroll body {
     border: 0;
     background: none;
     font: inherit;
-    font-size: var(--fs-xs);
+    /* fixed-height tab bar: labels grow with the text size but are capped so five tabs fit */
+    font-size: min(var(--fs-xs), 14px);
+    min-width: 0;
+    overflow: hidden;
     color: var(--muted);
     text-decoration: none !important;
     cursor: pointer;
@@ -2447,7 +2581,7 @@ html.no-scroll body {
     padding: 8px;
   }
   .more-sheet .nav-item {
-    height: 44px;
+    min-height: 44px;
   }
   .sheet-status {
     display: flex;
@@ -2533,4 +2667,279 @@ html.no-scroll body {
     top: auto;
     bottom: 10px;
   }
+}
+
+/* ---------- settings: text and fonts ---------- */
+.page-settings {
+  max-width: 1180px;
+  container-type: inline-size; /* layout follows the page width, not the window */
+}
+.settings-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.save-state {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 16px;
+  align-items: start;
+}
+.settings-preview {
+  position: sticky;
+  top: 16px;
+}
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.small-print {
+  font-size: var(--fs-sm);
+  margin: 0;
+}
+.segmented-field {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.segmented-field legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.segmented-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h-sm);
+  padding: 2px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.segmented-item input,
+.font-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.segmented-item.active {
+  border-color: var(--accent);
+  background: var(--accent-weak);
+  color: var(--accent);
+  font-weight: var(--fw-medium);
+}
+.segmented-item:focus-within,
+.font-option:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.font-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+}
+.font-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  cursor: pointer;
+  min-width: 0;
+}
+.font-option:hover {
+  border-color: var(--border-strong);
+}
+.font-option.active {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.font-option-name {
+  font-weight: var(--fw-semibold);
+}
+.font-option-sample {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+.font-option small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.scale-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+}
+.scale-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.scale-label small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+}
+.scale-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.scale-control input[type='range'] {
+  flex: 1;
+  min-width: 80px;
+}
+.scale-control .icon-btn {
+  font-size: 16px;
+  line-height: 1;
+}
+.scale-value {
+  min-width: 4.2em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.preview-ui {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--bg);
+}
+.preview-sidebar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  font-size: var(--fs-base);
+}
+.preview-sidebar .nav-item {
+  cursor: default;
+  white-space: nowrap;
+}
+.preview-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.preview-body p {
+  margin: 0;
+}
+.preview-search {
+  flex: none;
+  max-width: none;
+  width: 100%;
+}
+.preview-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preview-map {
+  position: relative;
+  height: 260px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+@container (max-width: 780px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-preview {
+    position: static;
+    order: -1;
+  }
+}
+@media (max-width: 520px) {
+  .preview-ui {
+    flex-direction: column;
+  }
+  .preview-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .preview-map {
+    height: 200px;
+  }
+}
+
+/* ---------- in-app confirmation dialog ---------- */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(16, 20, 24, 0.45);
+}
+.confirm-dialog {
+  width: min(440px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  padding: 18px 18px 14px;
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: var(--fs-lg);
+}
+.confirm-dialog p {
+  margin: 0 0 16px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(0.92);
 }

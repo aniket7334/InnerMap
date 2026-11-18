@@ -26,6 +26,7 @@ const NAV = [
 const SECONDARY = [
   { to: '/dashboard', label: 'Overview', icon: 'dashboard' },
   { to: '/profile', label: 'Account', icon: 'user' },
+  { to: '/settings', label: 'Settings', icon: 'text' },
 ];
 // Bottom navigation on phones: the four most used places plus "More".
 const MOBILE = [

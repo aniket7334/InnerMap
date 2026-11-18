@@ -6,6 +6,7 @@ import { listHistory, clearHistory } from '../services/historyService';
 import { errorMessage } from '../services/api';
 import Alert from '../components/Alert';
 import { formatCoord, formatDistance } from '../maps/geo';
+import { confirmDialog } from '../components/ConfirmDialog';
 
 export default function ProfilePage() {
   const { user, updateUser } = useAuth();
@@ -69,8 +70,8 @@ export default function ProfilePage() {
       if (!enabled) setHistory(null);
     }, enabled ? 'Location history is on. Points are recorded only while tracking is running.' : 'Location history is off.');
 
-  const deleteHistory = () => {
-    if (!window.confirm('Delete your whole location history from the server? This cannot be undone.')) return;
+  const deleteHistory = async () => {
+    if (!(await confirmDialog({ title: 'Delete location history?', message: 'Delete your whole location history from the server? This cannot be undone.', confirmLabel: 'Delete history', danger: true }))) return;
     run(async () => {
       const n = await clearHistory();
       setHistory([]);

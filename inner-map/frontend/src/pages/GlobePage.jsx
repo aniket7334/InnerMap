@@ -30,6 +30,7 @@ import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useLocation } from '../hooks/LocationContext';
 import { useMapProvider } from '../hooks/ProviderContext';
+import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
@@ -41,6 +42,7 @@ import LocationPanel from '../components/LocationPanel';
 import ProgressBar from '../components/ProgressBar';
 import Alert from '../components/Alert';
 import { formatBytes } from '../offline/storage';
+import { confirmDialog } from '../components/ConfirmDialog';
 
 const VECTOR = PROVIDERS.find((p) => p.kind === 'vector');
 const BASES = {
@@ -70,6 +72,9 @@ export default function GlobePage() {
   const { status } = useConnectivity();
   const { position, tracking } = useLocation();
   const { coverage } = useMapProvider();
+  const { settings: typography, mapLabelKey } = useTypography();
+  const typographyRef = useRef(typography);
+  typographyRef.current = typography;
   const { regions } = useRegions(user.id);
   const { locations } = useSavedLocations(user.id);
   const { collections } = useFeatureLayers(user.id);
@@ -227,7 +232,7 @@ export default function GlobePage() {
     const viewer = viewerRef.current;
     if (!ready || !viewer || !VECTOR) return undefined;
     if (!showDetail || !detailBounds) return undefined;
-    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds));
+    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds, typographyRef.current));
     viewer.imageryLayers.add(layer);
     detailLayerRef.current = layer;
     viewer.scene.requestRender();
@@ -237,7 +242,7 @@ export default function GlobePage() {
     };
     // Rebuild when connectivity changes or a download finishes, so empty tiles are refetched.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, showDetail, detailBounds, status, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
+  }, [ready, showDetail, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
 
   // ------------------------------------------------------------ overlays
   useEffect(() => {
@@ -357,7 +362,7 @@ export default function GlobePage() {
   };
 
   const uncacheGlobe = async () => {
-    if (!window.confirm('Remove the 3D globe files from this device? The globe will then need a connection to open.')) return;
+    if (!(await confirmDialog({ title: 'Remove 3D globe files?', message: 'The globe will then need a connection to open.', confirmLabel: 'Remove', danger: true }))) return;
     await removeGlobeOffline();
     refreshOffline();
   };

@@ -1,15 +1,21 @@
 const Preference = require('../models/preferenceModel');
 const { HttpError } = require('../middleware/errorHandler');
+const { sanitizeTypography } = require('../utils/typography');
 
 async function get(req, res) {
   res.json({ preferences: await Preference.get(req.user.id) });
 }
 
 async function update(req, res) {
-  const { mapProvider, defaultLat, defaultLng, defaultZoom, showDownloadedAreas } = req.body;
+  const { mapProvider, defaultLat, defaultLng, defaultZoom, showDownloadedAreas, typography } = req.body;
   const fields = {};
   if (mapProvider !== undefined) fields.mapProvider = mapProvider;
   if (showDownloadedAreas !== undefined) fields.showDownloadedAreas = showDownloadedAreas;
+  if (typography !== undefined) {
+    const { value, error } = sanitizeTypography(typography);
+    if (error) throw new HttpError(400, error);
+    fields.typography = value;
+  }
   // The default view is all-or-nothing: either a full lat/lng/zoom or cleared with nulls.
   if (defaultLat !== undefined || defaultLng !== undefined || defaultZoom !== undefined) {
     const parts = [defaultLat, defaultLng, defaultZoom];

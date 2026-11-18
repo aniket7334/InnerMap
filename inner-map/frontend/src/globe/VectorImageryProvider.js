@@ -6,6 +6,7 @@ import { Credit, Event as CesiumEvent, Rectangle, WebMercatorTilingScheme } from
 import { View, TileCache, PmtilesSource, Labelers, paint, paintRules, labelRules } from 'protomaps-leaflet';
 import { namedFlavor } from '@protomaps/basemaps';
 import { LocalFirstVectorSource } from '../maps/VectorTileLayer';
+import { buildLabelRules } from '../typography/mapLabels';
 
 const TILE = 256;
 const LEVEL_DIFF = 1; // same as the 2D layer: display zoom z uses data zoom z-1 (512px data tiles)
@@ -14,8 +15,9 @@ export class VectorImageryProvider {
   /**
    * @param provider  the 'local-vector' entry from maps/providers.js
    * @param bounds    { south, west, north, east } where data can exist (server coverage)
+   * @param typography optional typography settings for label size/font (typography/mapLabels.js)
    */
-  constructor(provider, bounds) {
+  constructor(provider, bounds, typography) {
     const flavor = namedFlavor('light');
     this._paintRules = paintRules(flavor);
     this._background = flavor.background;
@@ -24,7 +26,7 @@ export class VectorImageryProvider {
     const source = new PmtilesSource(new LocalFirstVectorSource(provider), false);
     this._view = new View(new TileCache(source, TILE * (1 << LEVEL_DIFF)), provider.maxDataZoom, LEVEL_DIFF);
     const scratch = document.createElement('canvas').getContext('2d');
-    this._labelers = new Labelers(scratch, labelRules(flavor, 'en'), 16, () => {});
+    this._labelers = new Labelers(scratch, typography ? buildLabelRules(typography) : labelRules(flavor, 'en'), 16, () => {});
 
     // Properties CesiumJS reads from an imagery provider.
     this.tilingScheme = new WebMercatorTilingScheme();

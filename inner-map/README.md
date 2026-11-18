@@ -209,6 +209,26 @@ Click **Directions** on the map.
 - **Rate limits:** the FOSSGIS servers allow 1 request per second and light use only. The backend queues requests to respect that, and limits each user to 30 route requests per minute. For production, run your own OSRM and set `OSRM_CAR_URL`, `OSRM_BIKE_URL` and `OSRM_FOOT_URL`.
 - Road data is stored in the browser (IndexedDB `routing` store), not in MySQL. **No database changes were needed** for these features.
 
+## 3f. Text and fonts (Settings)
+
+**Settings** (sidebar → Settings, or *More* on a phone) has two separate groups:
+
+| Group | What it changes | How |
+|---|---|---|
+| **Interface text** | Menus, buttons, panels, messages, all app text | CSS variables on `<html>` |
+| **Map labels** | Place, city, road, landmark, water labels on the vector map, and saved-place labels | Label rules of the vector renderer + CSS for saved-place labels |
+
+- **Fonts:** System default, Roboto, Inter, Arial, Open Sans, Lato. Roboto, Inter, Open Sans and Lato are **bundled with the app** (`@fontsource`, Latin subset, weights 400–700); no external font service is used, and the service worker keeps the font files for offline use. Arial is the operating-system font (similar fallback on Linux/Android). Lato has only Regular and Bold.
+- **Text size:** Extra small 12 px, Small 13, Medium 14 (default), Large 16, Extra large 18, or Custom 12–24 px. Headings, small print and control heights scale with it; icons and Leaflet map controls keep their size.
+- **Font weight:** Regular, Medium, Semibold, Bold (the whole weight ladder shifts, so headings stay bolder than body text). **Appearance:** Normal, Slightly increased contrast, High readability (darker text, more line spacing, underlined text links).
+- **Interface sections** (optional): Sidebar, Navigation menu, Toolbar, Buttons, Search box, Location panel, Downloaded maps page, Offline navigation panel, Settings page, Confirmation dialogs, Notifications, each 80–150 %. Off by default: everything follows the main size. Confirmation dialogs are now drawn by the app (`ConfirmDialog`) instead of the browser, so they follow the settings.
+- **Map labels:** size per category 60–200 %, label font (same as interface or another), normal/bolder, saved-place names on/off, landmark labels on/off.
+- **Live preview, auto-save, Reset to default** (all, or per group). Saved in the browser (applies instantly, also offline and on the login page) and in `user_preferences.typography` (migration 004), so it follows your account to other devices. Offline changes are queued and synced later.
+
+**Map label limitations:** the offline vector map is drawn in the browser, so its labels really change. **Raster base maps** (OpenStreetMap, satellite) are pictures with the labels printed in them; no setting can resize those labels. With a raster map only saved-place labels change, and Settings says so. On the 3D globe the vector overlay uses the same label settings.
+
+**Architecture:** `src/typography/typographyConfig.js` (options, defaults, validation) → `applyTypography.js` (sets `--app-font-family`, `--app-font-size`, `--app-scale`, `--fw-*`, `--scale-<section>`, `--map-label-*`) → `styles/global.css` (the type tokens `--fs-xs … --fs-xl` and `--control-h` are calculated from these and re-resolved inside each section). `mapLabels.js` wraps the stock protomaps label rules (same colours, collisions and order) and rescales each label font per category. `hooks/TypographyContext.jsx` loads, applies, saves and syncs.
+
 ## 4. Project structure
 
 ```
@@ -217,7 +237,9 @@ inner-map/
 │   ├── inner_map_db.sql             MySQL schema (database + 7 tables)
 │   └── migrations/
 │       ├── 002_user_preferences.sql       adds user_preferences to an existing DB
-│       └── 003_map_layers_features.sql    adds map_layers + map_features
+│       ├── 003_map_layers_features.sql    adds map_layers + map_features
+│       ├── 004_typography_preferences.sql adds user_preferences.typography (font settings)
+│       └── 004_typography_preferences_down.sql  rollback: removes only that column
 ├── backend/
 │   ├── config/        env.js (loads .env), db.js (mysql2 pool)
 │   ├── controllers/   auth, location, map, history, preference, layer
@@ -289,6 +311,10 @@ C:\xampp\mysql\bin\mysql.exe -u root inner_map_db < database\migrations\002_user
 ```bash
 C:\xampp\mysql\bin\mysql.exe -u root inner_map_db < database\migrations\003_map_layers_features.sql
 ```
+```bash
+C:\xampp\mysql\bin\mysql.exe -u root inner_map_db < database\migrations\004_typography_preferences.sql
+```
+To undo 004 (keeps all other preferences): `database\migrations\004_typography_preferences_down.sql`.
 
 ### Step 3: Backend
 ```bash
@@ -339,8 +365,8 @@ All endpoints except register, login and health need `Authorization: Bearer <tok
 | GET | `/api/location-history?limit=&from=&to=` | |
 | POST | `/api/location-history` | `{ latitude, longitude, accuracy?, recordedAt? }` or `{ points:[...] }`. Returns 403 unless opted in |
 | DELETE | `/api/location-history` | delete all of your history |
-| GET | `/api/preferences` | map provider and default view (defaults if never saved) |
-| PUT | `/api/preferences` | any of `{ mapProvider, defaultLat+defaultLng+defaultZoom, showDownloadedAreas }` |
+| GET | `/api/preferences` | map provider, default view and `typography` (`null` = defaults) |
+| PUT | `/api/preferences` | any of `{ mapProvider, defaultLat+defaultLng+defaultZoom, showDownloadedAreas, typography }`; `typography` is whitelisted and range-checked (unknown keys dropped, max 4 KB), `null` resets it |
 | GET | `/api/layers` | your feature layers with feature counts |
 | POST | `/api/layers` | `{ name, source: imported\|drawn, fileName?, features?: [≤1000] }` → `{ layer, featureIds }` |
 | PUT | `/api/layers/:id` | `{ name }` |
@@ -413,6 +439,13 @@ Open <http://localhost:4173> and keep the backend running.
    - Turn off Wi-Fi, then use Directions between two places inside the area. The badge says *Offline route*, and the line follows the streets.
 5. **Outside coverage:** offline, choose a destination outside the downloaded area. You get a warning, not a route.
 6. **GPS offline (phone):** with Wi-Fi and mobile data off and GPS on, tap ◎. The blue dot appears on the downloaded map, and moves as you walk while tracking is on.
+
+### B5. Text and fonts
+1. Settings → choose **Inter** and **Extra large**: all menus, buttons and panels change at once; the preview updates.
+2. Turn on **Size parts of the interface separately**, set Sidebar 130 % and Buttons 90 %: only those parts change.
+3. With the base map on *Inner Map Offline*, set Landmark labels 180 %: the preview map redraws with larger labels. Switch to OpenStreetMap: a note explains its labels cannot change.
+4. Refresh: the settings stay. Log out, clear site data, log in again: they come back from your account.
+5. Phone width with Custom 24 px: no sideways scrolling; Directions panel and map controls still work.
 
 ### C. Testing on a phone (real GPS)
 Geolocation only works on **https** or **localhost**. To use a phone:

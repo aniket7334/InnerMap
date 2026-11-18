@@ -24,6 +24,7 @@ import {
 import { prepareForGoogleEarth, GOOGLE_EARTH_WEB } from '../features/googleEarth';
 import * as featureService from '../services/featureService';
 import { describeGeometry, lineLengthMeters, polygonAreaM2, formatDistance, formatArea } from '../maps/geo';
+import { confirmDialog } from '../components/ConfirmDialog';
 
 const COLORS = [
   { value: '#2563eb', label: 'Blue' },
@@ -164,13 +165,13 @@ export default function LayersPage() {
   };
 
   const onDeleteLayer = async (layer) => {
-    if (!window.confirm(`Delete the layer “${layer.name}” and its ${layer.featureCount} features?`)) return;
+    if (!(await confirmDialog({ title: 'Delete layer?', message: `Delete the layer “${layer.name}” and its ${layer.featureCount} features?`, confirmLabel: 'Delete', danger: true }))) return;
     await featureService.deleteLayer(user.id, layer.localId);
     if (expanded === layer.localId) setExpanded(null);
   };
 
   const onDeleteFeature = async (f) => {
-    if (!window.confirm(`Delete “${f.name || 'this feature'}”?`)) return;
+    if (!(await confirmDialog({ title: 'Delete feature?', message: `Delete “${f.name || 'this feature'}”?`, confirmLabel: 'Delete', danger: true }))) return;
     await featureService.deleteFeature(user.id, f.localId);
     await refreshExpanded();
   };

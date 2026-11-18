@@ -12,6 +12,7 @@ import { useRegions } from '../hooks/useRegions';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import SearchBox from '../components/SearchBox';
 import { warmUpRouting } from '../routing/routingManager';
+import { ensureSearchIndexes } from '../offline/downloadManager';
 import Icon from '../components/Icon';
 import { gpsState } from '../components/GpsStatus';
 import { formatDistance } from '../maps/geo';
@@ -110,6 +111,10 @@ export default function AppLayout() {
   useEffect(() => {
     if (navigator.onLine) warmUpRouting();
   }, []);
+  // Offline search: index downloaded areas that have no index yet (on the device, no network).
+  useEffect(() => {
+    ensureSearchIndexes(user.id).catch((e) => console.warn('[search]', e.message));
+  }, [user.id, regions.length]);
   useEffect(() => {
     getStorageEstimate().then(setStorage).catch(() => {});
   }, [regions.length]);

@@ -15,7 +15,11 @@ const DB_NAME = 'inner-map';
 //                               geometry (GeoJSON), style, pending }
 // v3 (routing): adds `routing` - the road graph of a downloaded area for offline directions.
 //  routing    key = regionId  { regionId, userId, bounds, graph, bytes, edges, storedAt }
-const DB_VERSION = 3;
+// v4 (offline search): adds `places` - named places, streets and points of interest extracted
+// from the downloaded vector tiles, for offline search. Shared and reference-counted like tiles.
+//  places     key = "<layerId>|<layer>|<kind>|<name>|<lat>|<lng>"
+//             { key, name, nameLower, layer, kind, category, lat, lng, minZoom, population, regions: [regionId...] }
+const DB_VERSION = 4;
 
 let dbPromise;
 
@@ -48,6 +52,10 @@ export function getDB() {
           features.createIndex('layerLocalId', 'layerLocalId');
           features.createIndex('userId', 'userId');
         }
+        if (!db.objectStoreNames.contains('places')) {
+          const places = db.createObjectStore('places', { keyPath: 'key' });
+          places.createIndex('regions', 'regions', { multiEntry: true });
+        }
         if (!db.objectStoreNames.contains('routing')) {
           const routing = db.createObjectStore('routing', { keyPath: 'regionId' });
           routing.createIndex('userId', 'userId');
@@ -60,7 +68,7 @@ export function getDB() {
         // A newer version of the app opened in another tab: let it upgrade, then reload this one.
         dbPromise?.then((db) => db.close());
         dbPromise = null;
-        window.location.reload();
+        if (typeof window !== 'undefined') window.location.reload(); // not in a Web Worker
       },
     });
   }

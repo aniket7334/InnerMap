@@ -1,33 +1,62 @@
-// Toolbar search. Local results (saved places, offline maps, layer features) appear as you
-// type and work offline. Online place search (OpenStreetMap Nominatim) runs only when you
-// press Enter, as Nominatim's usage policy requires (no autocomplete).
+// Toolbar search.
+//  Offline (as you type): places, streets and businesses of your downloaded areas (on-device
+//  index), saved places, offline map names, KML/drawn features, and coordinates.
+//  Online (press Enter or the last row): OpenStreetMap Nominatim. Its usage policy forbids
+//  autocomplete, so it never runs while typing; max 1 request per second.
+//  Filters: category chips + "nearby" distance from your GPS position.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
+import { useLocation } from '../hooks/LocationContext';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useRegions } from '../hooks/useRegions';
 import { listLayers, getLayerFeatures } from '../services/featureService';
-import { searchPlaces } from '../services/geocodeService';
 import { featuresBounds } from '../features/kml';
+import { parseCoordinates, searchOffline, searchOnline, searchSaved, SEARCH_CATEGORIES } from '../search/placeSearch';
+import { categoryLabel } from '../search/categories';
+import { formatDistance } from '../maps/geo';
 import Icon from './Icon';
 
-const MAX_LOCAL = 8;
+const RADII = [
+  { value: 0, label: 'Any distance' },
+  { value: 1000, label: 'Within 1 km' },
+  { value: 5000, label: 'Within 5 km' },
+  { value: 20000, label: 'Within 20 km' },
+];
+
+const SOURCE_BADGE = { offline: 'Offline', saved: 'Saved', online: 'Online', area: 'Offline map', layer: 'Layer', coords: 'Coordinates' };
 
 export default function SearchBox({ onNavigate }) {
   const { user } = useAuth();
   const { status } = useConnectivity();
-  const { locations } = useSavedLocations(user.id);
+  const { position } = useLocation();
+  const { locations, add } = useSavedLocations(user.id);
   const { regions } = useRegions(user.id);
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [active, setActive] = useState(0);
+  const [active, setActive] = useState(-1);
+  const [category, setCategory] = useState('all');
+  const [radius, setRadius] = useState(0);
   const [features, setFeatures] = useState([]);
-  const [online, setOnline] = useState({ q: '', results: [], loading: false, error: null });
+  const [offline, setOffline] = useState({ results: [], indexSize: 0, loading: false });
+  const [online, setOnline] = useState({ key: '', results: [], loading: false, error: null });
+  const [savedIds, setSavedIds] = useState(() => new Set());
   const boxRef = useRef(null);
+  const inputRef = useRef(null);
 
-  // Index layer feature names once, and again when layers change.
+  const origin = position ? { lat: position.lat, lng: position.lng } : null;
+  const originIsLive = position && !position.restored;
+  const searchKey = `${query.trim()}|${category}|${radius}`;
+  const active2 = query.trim().length >= 2 || category !== 'all';
+
+  // Areas with an offline search index.
+  const indexedIds = useMemo(() => regions.filter((r) => r.search?.status === 'completed').map((r) => r.id), [regions]);
+  const indexing = regions.some((r) => r.search?.status === 'building');
+  const hasVectorAreas = regions.some((r) => r.status === 'completed' || r.status === 'partial');
+
+  // Layer feature names (KML / drawings) - indexed once, refreshed when layers change.
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -53,137 +82,264 @@ export default function SearchBox({ onNavigate }) {
     return () => document.removeEventListener('mousedown', close);
   }, []);
 
-  const q = query.trim().toLowerCase();
-  const local = useMemo(() => {
-    if (q.length < 2) return [];
-    const match = (s) => (s || '').toLowerCase().includes(q);
-    const out = [];
-    locations.filter((l) => match(l.name)).forEach((l) =>
-      out.push({
-        kind: 'Saved place',
-        label: l.name,
-        focus: { type: 'point', lat: l.latitude, lng: l.longitude, label: l.name },
-      })
-    );
-    regions.filter((r) => match(r.name)).forEach((r) =>
-      out.push({ kind: 'Offline map', label: r.name, focus: { type: 'bounds', bounds: r.bounds, label: r.name } })
-    );
-    features.filter((f) => match(f.name)).forEach((f) =>
-      out.push({
-        kind: f.layer,
-        label: f.name,
-        focus:
-          f.geometry.type === 'Point'
-            ? { type: 'point', lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], label: f.name }
-            : { type: 'bounds', bounds: featuresBounds([f]), label: f.name },
-      })
-    );
-    return out.slice(0, MAX_LOCAL);
-  }, [q, locations, regions, features]);
+  // Offline index search while typing (debounced).
+  useEffect(() => {
+    if (!active2 || !indexedIds.length) {
+      setOffline({ results: [], indexSize: 0, loading: false });
+      return undefined;
+    }
+    let alive = true;
+    setOffline((o) => ({ ...o, loading: true }));
+    const t = setTimeout(async () => {
+      try {
+        const r = await searchOffline({ query, category, regionIds: indexedIds, origin, radiusM: radius || null, limit: 25 });
+        if (alive) setOffline({ ...r, loading: false });
+      } catch (err) {
+        console.warn('[search]', err);
+        if (alive) setOffline({ results: [], indexSize: 0, loading: false });
+      }
+    }, 150);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+    // origin changes every GPS fix; distances refresh on the next keystroke/filter change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKey, indexedIds.join(',')]);
 
-  const onlineRows = online.q === query.trim() ? online.results : [];
-  const rows = [...local, ...onlineRows];
+  const q = query.trim();
+  const coords = useMemo(() => parseCoordinates(q), [q]);
+
+  const rows = useMemo(() => {
+    const out = [];
+    if (coords) {
+      out.push({ id: 'coords', source: 'coords', name: `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}`, type: 'Go to coordinates', lat: coords.lat, lng: coords.lng, zoom: 16 });
+    }
+    if (category === 'all' || category === 'saved') {
+      const saved = searchSaved(locations, q, origin).filter((r) => !radius || (r.distance != null && r.distance <= radius));
+      out.push(...saved.slice(0, 5));
+    }
+    if (category === 'all' && q.length >= 2 && !radius) {
+      const ql = q.toLowerCase();
+      regions
+        .filter((r) => (r.name || '').toLowerCase().includes(ql))
+        .slice(0, 3)
+        .forEach((r) => out.push({ id: `area-${r.id}`, source: 'area', name: r.name, type: 'Downloaded area', bounds: r.bounds }));
+      features
+        .filter((f) => f.name.toLowerCase().includes(ql))
+        .slice(0, 3)
+        .forEach((f, i) =>
+          out.push(
+            f.geometry.type === 'Point'
+              ? { id: `layer-${i}-${f.name}`, source: 'layer', name: f.name, type: f.layer, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], zoom: 17 }
+              : { id: `layer-${i}-${f.name}`, source: 'layer', name: f.name, type: f.layer, bounds: featuresBounds([f]) }
+          )
+        );
+    }
+    out.push(...offline.results);
+    if (online.key === searchKey) out.push(...online.results);
+    return out;
+  }, [coords, category, locations, q, origin, radius, regions, features, offline.results, online, searchKey]);
 
   const go = (row) => {
     setOpen(false);
-    setQuery(row.label);
-    navigate('/map', { state: { focus: { ...row.focus, at: Date.now() } } });
+    setQuery(row.name);
+    const focus = row.bounds
+      ? { type: 'bounds', bounds: row.bounds, label: row.name, point: row.lat != null ? { lat: row.lat, lng: row.lng } : null }
+      : { type: 'point', lat: row.lat, lng: row.lng, label: row.name, zoom: row.zoom };
+    navigate('/map', { state: { focus: { ...focus, at: Date.now() } } });
     onNavigate?.();
   };
 
-  const searchOnline = async () => {
-    const text = query.trim();
-    if (!text || status === 'offline') return;
-    setOnline({ q: text, results: [], loading: true, error: null });
+  const runOnline = async () => {
+    if (status === 'offline' || (!q && category === 'all')) return;
+    const key = searchKey;
+    setOnline({ key, results: [], loading: true, error: null });
     try {
-      const found = await searchPlaces(text);
-      setOnline({
-        q: text,
-        loading: false,
-        error: found.length ? null : 'No places found',
-        results: found.map((p) => ({
-          kind: 'OpenStreetMap',
-          label: p.name.split(',').slice(0, 2).join(','),
-          detail: p.name,
-          focus: { type: 'bounds', bounds: p.bounds, label: p.name.split(',')[0], point: { lat: p.lat, lng: p.lng } },
-        })),
-      });
+      const results = await searchOnline({ query: q, category, origin });
+      const filtered = results.filter((r) => !radius || (r.distance != null && r.distance <= radius));
+      setOnline({ key, results: filtered, loading: false, error: filtered.length ? null : 'Nothing found online.' });
     } catch (err) {
-      setOnline({ q: text, results: [], loading: false, error: err.message });
+      setOnline({ key, results: [], loading: false, error: err.message });
     }
+  };
+
+  const save = async (row, e) => {
+    e.stopPropagation();
+    await add({ name: row.name.slice(0, 100), latitude: row.lat, longitude: row.lng });
+    setSavedIds((s) => new Set(s).add(row.id));
   };
 
   const onKeyDown = (e) => {
+    const last = rows.length; // the "search online" row
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((a) => Math.min(rows.length, a + 1));
+      setOpen(true);
+      setActive((a) => Math.min(last, a + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActive((a) => Math.max(0, a - 1));
+      setActive((a) => Math.max(-1, a - 1));
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (rows[active]) go(rows[active]);
-      else searchOnline();
+      if (active >= 0 && rows[active]) go(rows[active]);
+      else runOnline();
     } else if (e.key === 'Escape') {
-      setOpen(false);
-      e.currentTarget.blur();
+      if (query) setQuery('');
+      else {
+        setOpen(false);
+        e.currentTarget.blur();
+      }
     }
   };
 
-  const showPanel = open && query.trim().length >= 2;
+  const clear = () => {
+    setQuery('');
+    setActive(-1);
+    setOnline({ key: '', results: [], loading: false, error: null });
+    inputRef.current?.focus();
+  };
+
+  const showPanel = open && (active2 || q.length > 0);
+  const onlineHere = online.key === searchKey;
+  let emptyText = null;
+  if (active2 && !rows.length && !offline.loading && !(onlineHere && online.loading)) {
+    if (!hasVectorAreas) emptyText = 'No downloaded areas yet: offline search covers the areas you download.';
+    else if (!indexedIds.length) emptyText = indexing ? 'Preparing offline search for your downloaded areas…' : 'Your downloaded areas have no search data yet.';
+    else if (radius && !origin) emptyText = 'Nearby search needs your location. Turn on GPS, or choose “Any distance”.';
+    else emptyText = `No match in your downloaded areas${category !== 'all' ? ` for ${categoryLabel(category)}` : ''}. Places outside the downloaded data are not available offline.`;
+  }
 
   return (
-    <div className="search" ref={boxRef} role="search">
-      <Icon name="search" size={16} className="search-icon" />
+    <div className={`search ${showPanel ? 'is-open' : ''}`} ref={boxRef} role="search">
+      <Icon name="search" size={18} className="search-icon" />
       <input
-        type="search"
+        ref={inputRef}
+        type="text"
+        inputMode="search"
         value={query}
-        placeholder="Search places, layers, offline maps"
-        aria-label="Search"
+        placeholder="Search places, streets, businesses or coordinates"
+        aria-label="Search places"
+        role="combobox"
         aria-expanded={showPanel}
         aria-controls="search-results"
+        aria-autocomplete="list"
+        aria-activedescendant={active >= 0 ? `search-opt-${active}` : undefined}
+        autoComplete="off"
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
-          setActive(0);
+          setActive(-1);
         }}
         onFocus={() => setOpen(true)}
+        onClick={() => setOpen(true)}
         onKeyDown={onKeyDown}
       />
-      {showPanel && (
-        <div className="search-results" id="search-results" role="listbox">
-          {rows.map((r, i) => (
+      {query && (
+        <button type="button" className="search-clear" onClick={clear} aria-label="Clear search" title="Clear search">
+          <Icon name="close" size={16} />
+        </button>
+      )}
+      {open && (
+        <div className="search-panel" id="search-results">
+          <div className="search-filters" role="group" aria-label="Filter by category">
+            {SEARCH_CATEGORIES.map((c) => (
+              <button
+                type="button"
+                key={c.id}
+                className={`search-chip ${category === c.id ? 'active' : ''}`}
+                aria-pressed={category === c.id}
+                title={c.hint}
+                onClick={() => {
+                  setCategory(c.id);
+                  setActive(-1);
+                  inputRef.current?.focus();
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div className="search-options">
+            <select value={radius} onChange={(e) => setRadius(Number(e.target.value))} aria-label="Distance">
+              {RADII.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+            <span className="search-origin">
+              {origin ? (originIsLive ? 'Distances from your location' : 'Distances from your last known location') : 'Turn on GPS to see distances'}
+            </span>
+          </div>
+
+          {showPanel && (
+            <div className="search-list" role="listbox" aria-label="Search results">
+              {rows.map((r, i) => (
+                <div
+                  key={r.id}
+                  id={`search-opt-${i}`}
+                  role="option"
+                  aria-selected={i === active}
+                  className={`search-row ${i === active ? 'active' : ''}`}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => go(r)}
+                >
+                  <div className="search-row-text">
+                    <span className="search-row-label">{r.name}</span>
+                    <span className="search-row-meta">
+                      {[r.type, r.address].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                  <div className="search-row-side">
+                    {r.distance != null && <span className="search-row-dist">{formatDistance(r.distance)}</span>}
+                    <span className={`search-badge badge-${r.source}`}>{SOURCE_BADGE[r.source]}</span>
+                  </div>
+                  {r.lat != null && r.source !== 'saved' && (
+                    <button
+                      type="button"
+                      className="search-save"
+                      onClick={(e) => save(r, e)}
+                      disabled={savedIds.has(r.id)}
+                      aria-label={savedIds.has(r.id) ? `${r.name} saved` : `Save ${r.name}`}
+                      title={savedIds.has(r.id) ? 'Saved' : 'Save this place'}
+                    >
+                      <Icon name={savedIds.has(r.id) ? 'check' : 'pin'} size={15} />
+                    </button>
+                  )}
+                </div>
+              ))}
+              {offline.loading && !rows.length && <div className="search-empty">Searching your downloaded areas…</div>}
+              {emptyText && <div className="search-empty">{emptyText}</div>}
+              {indexing && rows.length > 0 && <div className="search-note">Still preparing offline search for some areas…</div>}
+            </div>
+          )}
+
+          {showPanel && (
             <button
               type="button"
-              key={`${r.kind}-${r.label}-${i}`}
-              role="option"
-              aria-selected={i === active}
-              className={`search-row ${i === active ? 'active' : ''}`}
-              onMouseEnter={() => setActive(i)}
-              onClick={() => go(r)}
+              id={`search-opt-${rows.length}`}
+              className={`search-row search-online ${active === rows.length ? 'active' : ''}`}
+              onMouseEnter={() => setActive(rows.length)}
+              onClick={runOnline}
+              disabled={status === 'offline' || (onlineHere && online.loading)}
             >
-              <span className="search-row-label">{r.label}</span>
-              <span className="search-row-kind">{r.kind}</span>
+              <Icon name="globe" size={16} />
+              <span>
+                {status === 'offline'
+                  ? 'Online search needs a connection - showing results stored on this device'
+                  : onlineHere && online.loading
+                    ? 'Searching OpenStreetMap…'
+                    : onlineHere && online.error
+                      ? online.error
+                      : `Search online${q ? ` for “${q}”` : ` for ${categoryLabel(category)}`}${category !== 'all' && origin ? ' near you' : ''}  ↵`}
+              </span>
             </button>
-          ))}
-          {!rows.length && !online.loading && (
-            <div className="search-empty">No saved places, layers or offline maps match.</div>
           )}
-          <button
-            type="button"
-            className={`search-row search-online ${active === rows.length ? 'active' : ''}`}
-            onMouseEnter={() => setActive(rows.length)}
-            onClick={searchOnline}
-            disabled={status === 'offline' || online.loading}
-          >
-            {status === 'offline'
-              ? 'Place search needs a connection'
-              : online.loading
-                ? 'Searching OpenStreetMap...'
-                : online.error && online.q === query.trim()
-                  ? online.error
-                  : `Search OpenStreetMap for “${query.trim()}”  ↵`}
-          </button>
+          {showPanel && onlineHere && online.results.length > 0 && (
+            <div className="search-attrib">
+              Online results: © OpenStreetMap contributors, Nominatim
+            </div>
+          )}
         </div>
       )}
     </div>

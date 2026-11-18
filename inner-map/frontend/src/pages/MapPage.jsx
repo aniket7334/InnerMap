@@ -126,7 +126,7 @@ export default function MapPage() {
   useEffect(() => {
     if (!focus) return;
     if (focus.type === 'point') {
-      mapRef.current?.setView([focus.lat, focus.lng], Math.max(mapRef.current.getZoom(), 17));
+      mapRef.current?.setView([focus.lat, focus.lng], focus.zoom ?? Math.max(mapRef.current.getZoom(), 17));
       setHighlight({ lat: focus.lat, lng: focus.lng, label: focus.label });
     } else {
       setFitTo({ ...focus.bounds });

@@ -18,6 +18,7 @@ import { getStorageEstimate, requestPersistentStorage, isQuotaError } from './st
 import { queueMapCreate, queueMapDelete } from './syncService';
 import { saveRoutingData, deleteRoutingData } from './routingStore';
 import { fetchRoadGraph } from '../services/routingApi';
+import { getDB } from './db';
 
 const MAX_RETRIES = 3;
 const PERSIST_EVERY_MS = 1000;
@@ -100,6 +101,79 @@ export async function downloadRoutingData(regionId) {
     emit(await patchRegion(regionId, { routing: { status: 'failed', error: message } }));
     throw new Error(message);
   }
+}
+
+// ---- offline search index ---------------------------------------------------------------
+// Built on the device from the area's stored vector tiles (no network needed), so areas that
+// were downloaded before this feature existed get an index too.
+const indexJobs = new Map(); // regionId -> Promise
+
+export function buildSearchIndex(regionId) {
+  if (indexJobs.has(regionId)) return indexJobs.get(regionId);
+  const job = (async () => {
+    const region = await getRegion(regionId);
+    const provider = region && providerForRegion(region);
+    if (!region || !provider || provider.kind !== 'vector') return null;
+    emit(await patchRegion(regionId, { search: { status: 'building' } }));
+    const result = await new Promise((resolve, reject) => {
+      const worker = new Worker(new URL('../search/placeIndex.worker.js', import.meta.url), { type: 'module' });
+      worker.onmessage = (e) => {
+        if (e.data.type === 'done') {
+          worker.terminate();
+          resolve(e.data);
+        } else if (e.data.type === 'error') {
+          worker.terminate();
+          reject(new Error(e.data.message));
+        }
+      };
+      worker.onerror = (e) => {
+        worker.terminate();
+        reject(new Error(e.message || 'Search index worker failed'));
+      };
+      worker.postMessage({ regionId, layerId: region.layerId, maxDataZoom: provider.maxDataZoom });
+    });
+    const updated = await patchRegion(regionId, {
+      search: { status: 'completed', count: result.count, counts: result.counts, builtAt: Date.now() },
+    });
+    emit(updated);
+    window.dispatchEvent(new CustomEvent('innermap:search-index-changed'));
+    return updated;
+  })()
+    .catch(async (err) => {
+      console.warn('[search] index failed:', err.message);
+      emit(await patchRegion(regionId, { search: { status: 'failed', error: err.message } }));
+      return null;
+    })
+    .finally(() => indexJobs.delete(regionId));
+  indexJobs.set(regionId, job);
+  return job;
+}
+
+/** Index every finished vector area of this user that has no search index yet (one at a time). */
+export async function ensureSearchIndexes(userId) {
+  const regions = await listRegions(userId);
+  for (const r of regions) {
+    const provider = providerForRegion(r);
+    if (provider?.kind !== 'vector' || !['completed', 'partial'].includes(r.status) || r.doneCount === 0) continue;
+    if (r.search?.status === 'completed' || r.search?.status === 'building' || jobs.has(r.id)) continue;
+    await buildSearchIndex(r.id);
+  }
+}
+
+/** Remove a region from the search index; entries no other area uses are deleted. */
+async function releaseSearchIndex(regionId) {
+  const db = await getDB();
+  const tx = db.transaction('places', 'readwrite');
+  let cursor = await tx.store.index('regions').openCursor(regionId);
+  while (cursor) {
+    const rec = cursor.value;
+    const left = rec.regions.filter((id) => id !== regionId);
+    if (left.length) await cursor.update({ ...rec, regions: left });
+    else await cursor.delete();
+    cursor = await cursor.continue();
+  }
+  await tx.done;
+  window.dispatchEvent(new CustomEvent('innermap:search-index-changed'));
 }
 
 export async function startDownload({ userId, name, bounds, zoomMin, zoomMax, providerId, withRouting = false }) {
@@ -284,6 +358,7 @@ async function run(region, provider) {
 
   if (status === 'completed' || status === 'partial') {
     queueMapCreate(finalRegion).catch((e) => console.warn('[download] could not queue sync', e));
+    if (providerForRegion(finalRegion)?.kind === 'vector') buildSearchIndex(finalRegion.id);
     if (finalRegion.wantRouting && finalRegion.routing?.status !== 'completed') {
       downloadRoutingData(finalRegion.id).catch((e) => console.warn('[download] road data failed:', e.message));
     }
@@ -316,6 +391,7 @@ export async function deleteRegion(regionId) {
   const region = await getRegion(regionId);
   const freed = await releaseRegion(regionId);
   await deleteRoutingData(regionId);
+  await releaseSearchIndex(regionId).catch((e) => console.warn('[search] release failed:', e.message));
   await deleteRegionRecord(regionId);
   if (region) await queueMapDelete(region);
   emit({ id: regionId, deleted: true });

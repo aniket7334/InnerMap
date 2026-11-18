@@ -1778,6 +1778,7 @@ input:disabled {
 .gps-readout-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap; /* large text: the action button moves below instead of cutting the status */
   min-width: 0;
 }
 .gps-readout-main {
@@ -1790,7 +1791,7 @@ input:disabled {
 }
 .gps-action {
   flex: none;
-  margin-right: 4px;
+  margin: 0 4px 4px 9px;
   padding: 3px 9px;
   border: 1px solid var(--border-strong);
   border-radius: var(--r-sm);
@@ -2078,8 +2079,16 @@ input:disabled {
   color: var(--muted) !important;
   cursor: default !important;
 }
-.route-modes {
-  flex: 1;
+.tabs.route-modes {
+  flex: 1 1 220px;
+  /* four travel modes: wrap (2 x 2) instead of clipping when text is large */
+  grid-template-columns: repeat(auto-fit, minmax(max(3.9em, 50px), 1fr));
+  grid-auto-flow: row;
+  grid-auto-columns: auto;
+}
+.route-panel .row.between:has(.route-modes) {
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .route-pref {
   width: auto;
@@ -3862,4 +3871,20 @@ html.no-scroll body {
   .nav-actions .btn {
     flex: 1;
   }
+}
+.route-modes .tab {
+  padding-left: 3px;
+  padding-right: 3px;
+  white-space: nowrap;
+}
+/* travel modes size to their labels and wrap only when they don't fit (large text / narrow panel) */
+.tabs.route-modes {
+  display: flex;
+  flex-wrap: wrap;
+}
+.route-modes .tab {
+  flex: 1 1 auto;
+  min-width: 3.2em;
+  padding-left: 6px;
+  padding-right: 6px;
 }

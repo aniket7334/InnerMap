@@ -229,6 +229,34 @@ Click **Directions** on the map.
 
 **Architecture:** `src/typography/typographyConfig.js` (options, defaults, validation) → `applyTypography.js` (sets `--app-font-family`, `--app-font-size`, `--app-scale`, `--fw-*`, `--scale-<section>`, `--map-label-*`) → `styles/global.css` (the type tokens `--fs-xs … --fs-xl` and `--control-h` are calculated from these and re-resolved inside each section). `mapLabels.js` wraps the stock protomaps label rules (same colours, collisions and order) and rescales each label font per category. `hooks/TypographyContext.jsx` loads, applies, saves and syncs.
 
+## 3g. GPS, search, map views, offline packs, measure and navigation
+
+Staged plan and status: `docs/UPGRADE_PLAN.md`.
+
+**GPS first.** On start the app checks the location permission: already allowed -> live updates start and the map flies to you; not decided -> a short explanation with **Use my location** (the browser's own prompt opens from that click; *Not now* is remembered); blocked -> no prompt, the GPS chip explains how to allow it. The chip (bottom-left) shows *Finding…*, *Live GPS*, *Last known*, *Location off*, *Location blocked* or *Location unavailable* with Retry, and coordinates, accuracy, update time, altitude/speed. The toolbar shows a GPS indicator. Positions come only from the device (no IP lookup), so GPS works offline on devices with GPS hardware.
+
+**Search** (toolbar). Offline as you type: places, streets and named businesses of your downloaded areas (an index built on the device from the downloaded vector tiles, stored in IndexedDB `places`), saved places, offline map names and coordinates (decimal, N/S/E/W or degrees-minutes-seconds). Category chips (Places, Streets, Restaurants, Hotels, Hospitals, Petrol pumps, Shopping, Grocery, ATMs, Banks, Schools, Colleges, Government, Transport, Other) and a distance filter from your GPS position. Each result shows type, nearest area, distance and an Offline / Saved / Online badge, and can be saved. Online search (OpenStreetMap Nominatim) runs only on Enter (its policy forbids autocomplete; max 1 request/s; attribution shown). The offline data has **no street addresses, opening hours or phone numbers**; places outside downloaded areas are reported as not available offline.
+
+**Map views** (map *Layers* button): Default · Satellite · Terrain · Transit. Switching only swaps layers (centre, zoom, GPS marker and route stay).
+
+| View | Source | Licence / limits | Offline |
+|---|---|---|---|
+| Satellite | EOX Sentinel-2 cloudless 2025 (Copernicus), ≈10 m/pixel + OSM labels | CC BY-NC-SA 4.0: **non-commercial only**; commercial use needs an EOX licence or another source via `VITE_SATELLITE_URL`. Google imagery is blocked; Esri World Imagery is not used (its terms forbid caching outside ArcGIS) | Optional pack per area |
+| Terrain | AWS / Mapzen Terrain Tiles (SRTM, GMTED2010, ETOPO1), hill shading computed on the device + elevation under the cursor | Open data, attribution | Optional pack per area |
+| Transit | OpenStreetMap railway, metro, monorail, ferry lines, stations and stops from the vector data | Bus **routes** are not in the data (only stops); no GTFS timetable | With the vector map |
+
+**Downloading.** The Download page previews the selection live (Map / Satellite / Terrain - a preview, not what is stored) and lists the data to store with sizes and free storage: map, search index (built on the device), optional satellite and terrain packs, road data. Pause, resume, cancel, retry, add/remove packs later, bulk delete. Packs are stored like tiles (shared between overlapping areas), so deleting an area never removes data another area uses.
+
+**Businesses and buildings.** Named points of interest are labelled with a colour per category, from the zoom the data marks them visible; a category filter is in the Layers panel. Buildings get outlines and house numbers; **building names are not in this data**. Tap a place for its details, Directions or Save.
+
+**Measure** (map toolbar): straight-line distance over several points (segments, m / km) and area (m², km², ha, acres, perimeter). It is labelled "as the crow flies - not along roads"; road distance and time come from Directions (which now also shows the arrival time).
+
+**Navigation.** Directions has Drive, Walk, Cycle and **Motorbike**. Motorcycle routing uses OSM restrictions (e.g. two-wheelers banned on the Eastern Freeway, Coastal Road, Atal Setu and the Sea Link): offline with road data downloaded after this version (older road data says "Update"); online with `OSRM_MOTORCYCLE_URL` if set, otherwise Inner Map's own router inside its road data, otherwise a **car route marked as such**. **Start navigation** follows live GPS: next instruction and distance, distance/time left, arrival time, travel mode, online/offline route, GPS accuracy; it asks you to head to the route until you reach it, recalculates automatically when you leave it (3 fixes off the line, judged against GPS accuracy), detects arrival, and keeps the screen on where allowed. Nothing is simulated.
+
+**Navigation menu.** The Layers & KML page is no longer in the menus (sidebar, phone bar - now *Offline* - and More). Its data, API and the `/layers` address are unchanged; imported layers still show on the map with an on/off switch when an account has some.
+
+**No database changes** were needed for this upgrade; new device data lives in IndexedDB (version 4: `places` store) and the road-data file.
+
 ## 4. Project structure
 
 ```
@@ -380,7 +408,7 @@ All endpoints except register, login and health need `Authorization: Bearer <tok
 | GET | `/tiles/vector/{z}/{x}/{y}.mvt` | public: one vector tile (204 = no data) |
 | GET | `/globe-data/metadata` | public: which optional globe imagery/terrain is installed |
 | GET | `/api/routing/info` | online provider in use + offline road data available on the server |
-| GET | `/api/routing/route?profile=car\|foot\|bike&from=lat,lng&to=lat,lng` | online route (distance, duration, geometry, steps); 422 if no route or a point is far from roads |
+| GET | `/api/routing/route?profile=car\|foot\|bike\|motorcycle&from=lat,lng&to=lat,lng` | online route (distance, duration, geometry, steps); 422 if no route or a point is far from roads. Motorcycle: see 3g (`profileNote`, `profileFallback: "car"` when only a car route was possible) |
 | GET | `/api/routing/graph?south=&west=&north=&east=` | road graph of an area for offline routing (gzip JSON) |
 | GET | `/globe-data/imagery/…`, `/globe-data/terrain/…` | public: those datasets' tiles (404 if not installed) |
 
@@ -446,6 +474,14 @@ Open <http://localhost:4173> and keep the backend running.
 3. With the base map on *Inner Map Offline*, set Landmark labels 180 %: the preview map redraws with larger labels. Switch to OpenStreetMap: a note explains its labels cannot change.
 4. Refresh: the settings stay. Log out, clear site data, log in again: they come back from your account.
 5. Phone width with Custom 24 px: no sideways scrolling; Directions panel and map controls still work.
+
+### B6. GPS, search, views, packs, measure, navigation
+1. Fresh browser profile: open the map - the location explanation appears; *Use my location* centres the map on you. Block location in site settings - "Location blocked", no prompts.
+2. Download a small area with road data, satellite and terrain. Turn off the internet: search "restaurant" (Offline badges), switch Satellite and Terrain (stored tiles), get Drive / Motorbike / Walk directions (badge *Offline route*).
+3. Choose a destination outside the area offline: an explanation, no straight line.
+4. Measure two points and a polygon; compare with the road distance in Directions.
+5. On a phone outdoors: Directions -> Start navigation; walk off the route - it recalculates; at the destination - "You have arrived".
+6. Offline maps: Pause / Resume, remove a pack, select all -> Delete selected.
 
 ### C. Testing on a phone (real GPS)
 Geolocation only works on **https** or **localhost**. To use a phone:

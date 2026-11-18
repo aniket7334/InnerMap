@@ -25,4 +25,4 @@ Checkpoint before this upgrade: commit `88bc572`.
 6. **Measure tool** (done) – distance (multi-point, segments, m/km), area (m², km², ha, acres), labelled “straight-line”; works offline.
 7. **Navigation** (done) – motorcycle profile (offline from OSM `motorcycle`/`motor_vehicle` access tags; online only if the configured service has one, otherwise clearly “car profile”); navigation mode: next instruction, remaining distance/time, ETA, off-route re-routing, GPS accuracy, online/offline badge. GraphHopper/Valhalla evaluated against the existing in-browser router.
 8. **Hide Layers & KML** (done) from navigation (sidebar, bottom nav, More sheet, map popover); routes, data and API kept.
-9. **Responsive pass + full regression test.**
+9. **Responsive pass + full regression test.** (done)

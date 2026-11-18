@@ -19,6 +19,7 @@ import Icon from '../components/Icon';
 import { SATELLITE_SOURCE } from '../maps/providers';
 import { CATEGORY_COLOURS, LABEL_FILTER_CATEGORIES, categoryLabel, categoryOf, kindLabel } from '../search/categories';
 import GpsStatus, { GpsStartupPrompt } from '../components/GpsStatus';
+import MeasurePanel from '../components/MeasurePanel';
 
 const VIEW_OPTIONS = [
   { id: 'default', label: 'Default', note: 'Streets, places, landmarks' },
@@ -176,6 +177,8 @@ export default function MapPage() {
   const { locations, add } = useSavedLocations(user.id);
   const { provider, providers, setProviderId, coverage, mapView, setMapView, poiFilter, setPoiFilter } = useMapProvider();
   const [placeCard, setPlaceCard] = useState(null);
+  // Measure tool: null when closed.
+  const [measure, setMeasure] = useState(null);
   const { collections } = useFeatureLayers(user.id);
   const routerLocation = useRouterLocation();
 
@@ -270,6 +273,10 @@ export default function MapPage() {
   };
 
   const onMapClick = (latlng, _map, queryAt) => {
+    if (measure) {
+      setMeasure((m) => ({ ...m, points: [...m.points, [latlng.lat, latlng.lng]] }));
+      return;
+    }
     if (!routePick && !pickMode) {
       const f = queryAt?.(latlng);
       setPlaceCard(f ? { ...f, lat: latlng.lat, lng: latlng.lng } : null);
@@ -320,6 +327,7 @@ export default function MapPage() {
       <MapView
         className="map-full"
         view={mapView}
+        measure={measure}
         follow={follow && tracking}
         places={overlays.places ? locations : []}
         regions={overlays.regions ? regions : []}
@@ -350,12 +358,31 @@ export default function MapPage() {
             <button
               type="button"
               className={`ctrl-btn ctrl-btn-text ${routeOpen ? 'on' : ''}`}
-              onClick={() => (routeOpen ? closeRoute() : setRouteOpen(true))}
+              onClick={() => {
+                setMeasure(null);
+                if (routeOpen) closeRoute();
+                else setRouteOpen(true);
+              }}
               aria-expanded={routeOpen}
             >
               <Icon name="route" size={16} /> <span className="ctrl-label">Directions</span>
             </button>
+            <button
+              type="button"
+              className={`ctrl-btn ctrl-btn-text ${measure ? 'on' : ''}`}
+              onClick={() => {
+                setPlaceCard(null);
+                // one tool panel at a time (they share the bottom sheet on phones); the route line stays
+                setRouteOpen(false);
+                setRoutePick(null);
+                setMeasure((m) => (m ? null : { mode: 'distance', points: [], unit: 'auto' }));
+              }}
+              aria-expanded={Boolean(measure)}
+            >
+              <Icon name="ruler" size={16} /> <span className="ctrl-label">Measure</span>
+            </button>
           </div>
+          {measure && <MeasurePanel state={measure} setState={setMeasure} route={routeView.route} onClose={() => setMeasure(null)} />}
           {addMenu && (
             <div className="ctrl-popover ctrl-menu">
               <button type="button" onClick={addAtMyLocation}>

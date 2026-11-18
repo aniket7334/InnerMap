@@ -16,6 +16,7 @@ import { formatCoord, describeGeometry, WORLD_VIEW } from './geo';
 import { SATELLITE_SOURCE, TERRAIN_SOURCE, getProvider } from './providers';
 import { HillshadeLayer, elevationAt } from './HillshadeLayer';
 import { createLabelsOverlay, createTransitOverlay, TRANSIT_LEGEND } from './viewOverlays';
+import { formatLength, measureStats } from '../components/MeasurePanel';
 
 const VECTOR = getProvider('local-vector');
 
@@ -211,6 +212,7 @@ export default function MapView({
   showLocateButton = true,
   interactive = true,
   view = 'default', // 'default' | 'satellite' | 'terrain' | 'transit' (map view selector)
+  measure = null, // { mode: 'distance'|'area', points: [[lat, lng]...], unit } - measure tool
   children,
 }) {
   const containerRef = useRef(null);
@@ -283,6 +285,7 @@ export default function MapView({
       features: L.layerGroup().addTo(map),
       places: L.layerGroup().addTo(map),
       sketch: L.layerGroup().addTo(map),
+      measure: L.layerGroup().addTo(map),
       highlight: L.layerGroup().addTo(map),
       route: L.layerGroup().addTo(map),
       regions: L.layerGroup().addTo(map),
@@ -373,6 +376,39 @@ export default function MapView({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Measure tool: straight line / polygon with point markers and segment lengths.
+  useEffect(() => {
+    const layer = layersRef.current.measure;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!measure || !measure.points.length) return;
+    const pts = measure.points;
+    const style = { color: '#b45309', weight: 3, dashArray: '6 5', interactive: false };
+    if (measure.mode === 'area' && pts.length >= 3) {
+      L.polygon(pts, { ...style, fillColor: '#f59e0b', fillOpacity: 0.15 }).addTo(layer);
+    } else if (pts.length >= 2) {
+      L.polyline(pts, style).addTo(layer);
+    }
+    const stats = measureStats(pts, measure.mode);
+    const label = (latlng, text, cls = '') => {
+      const el = document.createElement('span');
+      el.textContent = text;
+      L.tooltip({ permanent: true, direction: 'center', className: `measure-label ${cls}`, interactive: false })
+        .setLatLng(latlng)
+        .setContent(el)
+        .addTo(layer);
+    };
+    if (measure.mode === 'distance') {
+      stats.segments.forEach((d, i) => {
+        if (stats.segments.length > 1) label([(pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2], formatLength(d, measure.unit));
+      });
+    }
+    pts.forEach((p, i) =>
+      L.circleMarker(p, { radius: 5, color: '#ffffff', weight: 2, fillColor: '#b45309', fillOpacity: 1, interactive: false }).addTo(layer)
+    );
+    if (measure.mode === 'distance' && pts.length >= 2) label(pts[pts.length - 1], `Total ${formatLength(stats.length, measure.unit)}`, 'measure-total-label');
+  }, [measure]);
 
   // Terrain view: hill shading from elevation data over the base map.
   useEffect(() => {
@@ -671,7 +707,7 @@ export default function MapView({
   };
 
   return (
-    <div className={`map-view ${className} ${sketch?.stage === 'drawing' ? 'is-drawing' : ''}`}>
+    <div className={`map-view ${className} ${sketch?.stage === 'drawing' || measure ? 'is-drawing' : ''}`}>
       <div ref={containerRef} className="map-canvas" />
       {showLocateButton && (
         <button

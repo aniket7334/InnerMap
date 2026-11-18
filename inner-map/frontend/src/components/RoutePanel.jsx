@@ -219,7 +219,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
       if (!from) throw new RouteError('Choose a starting point.');
       if (!to) throw new RouteError('Choose a destination.');
       const r = await calculateRoute({ userId, profile, from, to, preference: pref });
-      setRoute(r);
+      setRoute({ ...r, calculatedAt: Date.now() });
       setCollapsed(false);
     } catch (err) {
       setRoute(null);
@@ -376,7 +376,12 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
                   {route.durationIsEstimate ? '≈ ' : ''}
                   {formatDuration(route.duration)}
                 </span>
+                <span className="route-eta" title="Arrival time if you leave now">
+                  arrive {route.durationIsEstimate ? '≈ ' : ''}
+                  {new Date((route.calculatedAt || Date.now()) + route.duration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
               </div>
+              <p className="muted tiny">Distance along roads{route.steps?.length ? ` · ${route.steps.length} steps` : ''}</p>
               <p className="muted tiny">
                 {route.mode === 'online' ? 'Online' : 'Offline'} · {route.providerLabel}
                 {route.durationIsEstimate ? ' · time estimated from road types, without live traffic' : ''}

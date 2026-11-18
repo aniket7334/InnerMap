@@ -12,6 +12,7 @@ const MODES = [
   { id: 'car', label: 'Drive' },
   { id: 'foot', label: 'Walk' },
   { id: 'bike', label: 'Cycle' },
+  { id: 'motorcycle', label: 'Motorbike' },
 ];
 
 const COORD_RE = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
@@ -149,7 +150,7 @@ function PlaceField({ label, value, onChange, onPick, picking, places, position,
   );
 }
 
-export default function RoutePanel({ userId, pick, setPick, picked, onResult, onFocusPoint, onClose }) {
+export default function RoutePanel({ userId, pick, setPick, picked, onResult, onFocusPoint, onClose, onStartNavigation }) {
   const { status } = useConnectivity();
   const { position, locateOnce } = useLocation();
   const { locations } = useSavedLocations(userId);
@@ -219,7 +220,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
       if (!from) throw new RouteError('Choose a starting point.');
       if (!to) throw new RouteError('Choose a destination.');
       const r = await calculateRoute({ userId, profile, from, to, preference: pref });
-      setRoute({ ...r, calculatedAt: Date.now() });
+      setRoute({ ...r, profile, calculatedAt: Date.now() });
       setCollapsed(false);
     } catch (err) {
       setRoute(null);
@@ -389,6 +390,26 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
                   ? ` · joined the nearest road ${Math.max(route.snapped.start.offset, route.snapped.end.offset)} m away`
                   : ''}
               </p>
+              {route.profileNote && (
+                <p className={`route-note ${route.profileFallback ? 'warn' : ''}`}>{route.profileNote}</p>
+              )}
+              {onStartNavigation && (
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block nav-start"
+                  onClick={() => {
+                    const last = route.geometry[route.geometry.length - 1];
+                    onStartNavigation({
+                      route,
+                      profile: route.profile || profile, // the mode this route was calculated for
+                      to: end?.lat != null ? { lat: end.lat, lng: end.lng } : { lat: last[0], lng: last[1] },
+                      toLabel: end?.label || 'Destination',
+                    });
+                  }}
+                >
+                  <Icon name="navigation" size={15} /> Start navigation
+                </button>
+              )}
               <ol className="route-steps">
                 {route.steps.map((s, i) => (
                   <li key={i}>

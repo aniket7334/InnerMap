@@ -18,7 +18,7 @@ const config = require('../config/env');
 const { HttpError } = require('../middleware/errorHandler');
 
 const USER_AGENT = 'InnerMap/1.0 (self-hosted offline map app)';
-const PROFILES = ['car', 'bike', 'foot'];
+const PROFILES = ['car', 'bike', 'foot', 'motorcycle'];
 // How far a requested point may be from the nearest road (same idea as the offline router).
 const MAX_SNAP_METERS = 500;
 
@@ -272,8 +272,41 @@ function onlineInfo() {
   return { provider, label: labels[provider] || provider, profiles: PROFILES };
 }
 
+/**
+ * Motorcycle routing. Public OSRM servers and the hosted GraphHopper API have no motorcycle
+ * profile, so: a configured OSRM motorcycle server -> else Inner Map's own router (OSM
+ * motorcycle restrictions, inside its road data) -> else a CAR route, clearly marked as such.
+ */
+async function motorcycleRoute(from, to) {
+  if (config.routing.osrm.motorcycle) {
+    const r = await osrmRoute('motorcycle', from, to);
+    return { ...r, providerLabel: `${r.providerLabel} (motorcycle profile)` };
+  }
+  const c = loadGraph();
+  let localError = null;
+  if (c) {
+    try {
+      const r = await localRoute('motorcycle', from, to);
+      return { ...r, profileNote: 'Motorcycle route on OpenStreetMap data (two-wheeler restrictions such as banned expressways are respected).' };
+    } catch (err) {
+      localError = err;
+      // A real "no route" inside the data must not be replaced by a car route.
+      if (err.status === 422 && !/outside the area/.test(err.message)) throw err;
+    }
+  }
+  const car = config.routing.provider === 'graphhopper' ? await graphhopperRoute('car', from, to) : await osrmRoute('car', from, to);
+  return {
+    ...car,
+    profileFallback: 'car',
+    profileNote:
+      'No motorcycle routing is available here online, so this is a CAR route. It may use roads where two-wheelers are not allowed (e.g. some expressways and sea links). ' +
+      (localError ? 'Motorcycle routing works inside the Inner Map road-data area.' : ''),
+  };
+}
+
 async function onlineRoute(profile, from, to) {
-  if (!PROFILES.includes(profile)) throw new HttpError(400, 'profile must be car, bike or foot');
+  if (!PROFILES.includes(profile)) throw new HttpError(400, 'profile must be car, bike, foot or motorcycle');
+  if (profile === 'motorcycle' && config.routing.provider !== 'local') return motorcycleRoute(from, to);
   switch (config.routing.provider) {
     case 'graphhopper':
       return graphhopperRoute(profile, from, to);

@@ -20,6 +20,7 @@ import { SATELLITE_SOURCE } from '../maps/providers';
 import { CATEGORY_COLOURS, LABEL_FILTER_CATEGORIES, categoryLabel, categoryOf, kindLabel } from '../search/categories';
 import GpsStatus, { GpsStartupPrompt } from '../components/GpsStatus';
 import MeasurePanel from '../components/MeasurePanel';
+import NavigationView from '../components/NavigationView';
 
 const VIEW_OPTIONS = [
   { id: 'default', label: 'Default', note: 'Streets, places, landmarks' },
@@ -179,6 +180,8 @@ export default function MapPage() {
   const [placeCard, setPlaceCard] = useState(null);
   // Measure tool: null when closed.
   const [measure, setMeasure] = useState(null);
+  // Navigation mode: { route, profile, to, toLabel } while navigating.
+  const [nav, setNav] = useState(null);
   const { collections } = useFeatureLayers(user.id);
   const routerLocation = useRouterLocation();
 
@@ -240,7 +243,7 @@ export default function MapPage() {
   // Fit the map to a newly calculated route.
   useEffect(() => {
     const g = routeView.route?.geometry;
-    if (!g?.length) return;
+    if (!g?.length || nav) return; // while navigating the map follows you instead
     let s = 90;
     let n = -90;
     let w = 180;
@@ -328,7 +331,7 @@ export default function MapPage() {
         className="map-full"
         view={mapView}
         measure={measure}
-        follow={follow && tracking}
+        follow={(follow || Boolean(nav)) && tracking}
         places={overlays.places ? locations : []}
         regions={overlays.regions ? regions : []}
         featureCollections={overlays.layers ? collections : []}
@@ -341,7 +344,20 @@ export default function MapPage() {
         onClick={onMapClick}
       >
         {/* top-left: add a place, directions */}
-        <div className="map-ctrl map-ctrl-tools">
+        {nav && (
+          <NavigationView
+            userId={user.id}
+            nav={nav}
+            onRoute={(r) => setRouteView((v) => ({ ...v, route: r }))}
+            onStop={() => {
+              // back to the route planned in Directions (the panel still shows it)
+              setRouteView((v) => ({ ...v, route: nav.route }));
+              setNav(null);
+              setRouteOpen(true);
+            }}
+          />
+        )}
+        <div className={`map-ctrl map-ctrl-tools ${nav ? 'hidden-while-nav' : ''}`}>
           <div className="ctrl-group">
             <button
               type="button"
@@ -426,6 +442,13 @@ export default function MapPage() {
           )}
           {routeOpen && (
             <RoutePanel
+              onStartNavigation={(n) => {
+                setNav(n);
+                setRouteView((v) => ({ ...v, route: n.route }));
+                setFollow(true);
+                if (position && mapRef.current) mapRef.current.setView([position.lat, position.lng], Math.max(mapRef.current.getZoom(), 17));
+                setPlaceCard(null);
+              }}
               userId={user.id}
               pick={routePick}
               setPick={setRoutePick}

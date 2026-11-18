@@ -314,12 +314,17 @@ export default function MyMapsPage() {
                     <p className="item-meta">
                       Road data for offline directions:{' '}
                       {r.routing?.status === 'completed'
-                        ? `ready (${formatBytes(r.routing.bytes)}, ${r.routing.edges.toLocaleString()} road segments)`
+                        ? `ready (${formatBytes(r.routing.bytes)}, ${r.routing.edges.toLocaleString()} road segments${(r.routing.profiles || []).includes('motorcycle') ? '' : '; no motorcycle routing - update it'})`
                         : r.routing?.status === 'downloading' || r.routing?.status === 'pending'
                           ? 'downloading...'
                           : r.routing?.status === 'failed'
                             ? `failed - ${r.routing.error}`
                             : 'not downloaded'}{' '}
+                      {r.routing?.status === 'completed' && !(r.routing.profiles || []).includes('motorcycle') && status === 'online' && (
+                        <button className="link-btn" onClick={() => onAddRouting(r)}>
+                          Update
+                        </button>
+                      )}
                       {r.status !== 'downloading' &&
                         !['completed', 'downloading', 'pending'].includes(r.routing?.status) &&
                         status === 'online' && (

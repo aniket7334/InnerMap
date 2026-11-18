@@ -18,6 +18,8 @@ export const CAR_SPEED = {
 };
 export const FOOT_SPEED = 4.8; // km/h
 export const BIKE_SPEED = 14; // km/h
+// Motorcycles use the car speed of a road, capped (estimate, without traffic).
+export const MOTO_MAX_SPEED = 60; // km/h
 export const MAX_CAR_SPEED = 100;
 
 // Edge flag bits.
@@ -26,6 +28,11 @@ export const CAR_BWD = 2;
 export const BIKE_FWD = 4;
 export const BIKE_BWD = 8;
 export const FOOT = 16;
+export const MOTO_FWD = 32;
+export const MOTO_BWD = 64;
+
+/** Travel modes a graph built by this version supports (older graphs lack 'motorcycle'). */
+export const GRAPH_PROFILES = ['car', 'bike', 'foot', 'motorcycle'];
 
 const NO = new Set(['no', 'private', 'agricultural', 'forestry', 'delivery']);
 
@@ -41,20 +48,30 @@ export function accessFlags(tags) {
 
   const general = denied(tags.access);
   let car = Object.prototype.hasOwnProperty.call(CAR_SPEED, hw) && hw !== 'track';
+  // Motorcycles: the car network (incl. tracks), with their own OSM restrictions.
+  let moto = Object.prototype.hasOwnProperty.call(CAR_SPEED, hw);
   let foot = !['motorway', 'motorway_link'].includes(hw);
   let bike = !['motorway', 'motorway_link', 'steps', 'footway', 'pedestrian'].includes(hw);
 
+  const allowedTag = (v) => ['yes', 'designated', 'permissive', 'destination'].includes(v);
   if (general) {
     car = false;
+    moto = allowedTag(tags.motorcycle) || allowedTag(tags.motor_vehicle);
     foot = foot && ['yes', 'designated', 'permissive'].includes(tags.foot);
     bike = bike && ['yes', 'designated', 'permissive'].includes(tags.bicycle);
   }
   if (denied(tags.motor_vehicle) || denied(tags.motorcar) || denied(tags.vehicle)) car = false;
+  // e.g. motorcycle=no on expressways / sea links where two-wheelers are banned
+  if (denied(tags.motorcycle) || denied(tags.motor_vehicle) || denied(tags.vehicle)) moto = false;
+  else if (allowedTag(tags.motorcycle)) moto = Object.prototype.hasOwnProperty.call(CAR_SPEED, hw) || moto;
   if (denied(tags.foot)) foot = false;
   if (denied(tags.bicycle) || denied(tags.vehicle)) bike = false;
   if (hw === 'footway' || hw === 'pedestrian') bike = ['yes', 'designated'].includes(tags.bicycle);
   if (hw === 'cycleway') foot = tags.foot !== 'no';
-  if (['footway', 'pedestrian', 'path', 'cycleway', 'steps', 'bridleway'].includes(hw)) car = false;
+  if (['footway', 'pedestrian', 'path', 'cycleway', 'steps', 'bridleway'].includes(hw)) {
+    car = false;
+    moto = false;
+  }
 
   // One-way rules: car follows oneway / roundabouts / motorways; bikes too unless exempted; walking ignores them.
   const ow = tags.oneway;
@@ -67,6 +84,9 @@ export function accessFlags(tags) {
 
   let f = 0;
   if (car) f |= (fwd ? CAR_FWD : 0) | (bwd ? CAR_BWD : 0);
+  // one-way rules apply to motorcycles too (oneway:motorcycle=no exempts)
+  const motoExempt = tags['oneway:motorcycle'] === 'no';
+  if (moto) f |= (fwd || motoExempt ? MOTO_FWD : 0) | (bwd || motoExempt ? MOTO_BWD : 0);
   if (bike) f |= (fwd || bikeExempt ? BIKE_FWD : 0) | (bwd || bikeExempt ? BIKE_BWD : 0);
   if (foot) f |= FOOT;
   return f;
@@ -89,4 +109,5 @@ export const PROFILES = {
   car: { label: 'Driving', fwd: CAR_FWD, bwd: CAR_BWD },
   bike: { label: 'Cycling', fwd: BIKE_FWD, bwd: BIKE_BWD },
   foot: { label: 'Walking', fwd: FOOT, bwd: FOOT },
+  motorcycle: { label: 'Motorcycle', fwd: MOTO_FWD, bwd: MOTO_BWD },
 };

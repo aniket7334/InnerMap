@@ -147,7 +147,7 @@ export async function downloadRoutingData(regionId) {
       builtAt: graph.builtAt,
       storedAt: Date.now(),
     });
-    emit(await patchRegion(regionId, { routing: { status: 'completed', bytes, edges: graph.edgeA.length } }));
+    emit(await patchRegion(regionId, { routing: { status: 'completed', bytes, edges: graph.edgeA.length, profiles: graph.profiles || ['car', 'bike', 'foot'] } }));
   } catch (err) {
     const message = err.response?.data?.message || err.message || 'Download failed';
     emit(await patchRegion(regionId, { routing: { status: 'failed', error: message } }));

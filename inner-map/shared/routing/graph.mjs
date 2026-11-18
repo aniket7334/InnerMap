@@ -10,7 +10,7 @@
 //   edgeFlags: [access bits], edgeSpeed: [car km/h], edgeName: [names index],
 //   shapeOff: [edges+1 offsets into shape], shape: [lat,lon,lat,lon,... int 1e-6]  (points between A and B)
 // }
-import { accessFlags, carSpeed, CLASSES } from './profiles.mjs';
+import { accessFlags, carSpeed, CLASSES, GRAPH_PROFILES } from './profiles.mjs';
 
 export const FORMAT = 'innermap-routing-1';
 const E6 = 1e6;
@@ -101,7 +101,7 @@ export function buildGraph(ways, meta = {}) {
       start = i;
     }
   }
-  return { ...g, ...meta };
+  return { ...g, profiles: GRAPH_PROFILES, ...meta };
 }
 
 /** Keep the edges with at least one end inside bounds (so roads crossing the edge stay usable). */
@@ -113,7 +113,7 @@ export function subsetGraph(g, b) {
   };
   const map = new Map();
   const out = {
-    format: FORMAT, names: [], nodeId: [], nodeLat: [], nodeLon: [],
+    format: FORMAT, profiles: g.profiles || ['car', 'bike', 'foot'], names: [], nodeId: [], nodeLat: [], nodeLon: [],
     edgeA: [], edgeB: [], edgeLen: [], edgeCls: [], edgeFlags: [], edgeSpeed: [], edgeName: [],
     shapeOff: [0], shape: [],
   };
@@ -163,8 +163,10 @@ export function subsetGraph(g, b) {
 /** Merge graphs (e.g. two downloaded areas) into one, joining shared OSM junctions. */
 export function mergeGraphs(graphs) {
   if (graphs.length === 1) return graphs[0];
+  // A mode is only available if every merged area supports it (older areas lack 'motorcycle').
+  const profiles = ['car', 'bike', 'foot', 'motorcycle'].filter((p) => graphs.every((g) => (g.profiles || ['car', 'bike', 'foot']).includes(p)));
   const out = {
-    format: FORMAT, names: [''], nodeId: [], nodeLat: [], nodeLon: [],
+    format: FORMAT, profiles, names: [''], nodeId: [], nodeLat: [], nodeLon: [],
     edgeA: [], edgeB: [], edgeLen: [], edgeCls: [], edgeFlags: [], edgeSpeed: [], edgeName: [],
     shapeOff: [0], shape: [], bounds: null,
   };

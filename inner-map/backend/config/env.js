@@ -42,6 +42,8 @@ module.exports = {
       car: process.env.OSRM_CAR_URL || '',
       bike: process.env.OSRM_BIKE_URL || '',
       foot: process.env.OSRM_FOOT_URL || '',
+      // Only if you run an OSRM server built with a motorcycle profile (the public ones have none).
+      motorcycle: process.env.OSRM_MOTORCYCLE_URL || '',
     },
     graphhopperKey: process.env.GRAPHHOPPER_API_KEY || '',
   },

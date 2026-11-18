@@ -1,7 +1,7 @@
 // Road-network router (A* over the graph from graph.mjs). Runs in the browser (Web Worker,
 // fully offline) and in Node (backend "local" provider). It never invents a straight line:
 // if the two points are not connected by usable roads, it reports that.
-import { PROFILES, CLASSES, FOOT_SPEED, BIKE_SPEED, MAX_CAR_SPEED } from './profiles.mjs';
+import { PROFILES, CLASSES, FOOT_SPEED, BIKE_SPEED, MAX_CAR_SPEED, MOTO_MAX_SPEED } from './profiles.mjs';
 import { haversine } from './graph.mjs';
 
 const E6 = 1e6;
@@ -69,6 +69,7 @@ export function edgePoints(g, e) {
 function speedOf(g, e, profile) {
   if (profile === 'foot') return FOOT_SPEED;
   if (profile === 'bike') return BIKE_SPEED;
+  if (profile === 'motorcycle') return Math.min(MOTO_MAX_SPEED, g.edgeSpeed[e] || 15);
   return g.edgeSpeed[e] || 15;
 }
 
@@ -79,6 +80,11 @@ function speedOf(g, e, profile) {
 export function prepare(g, profile) {
   const p = PROFILES[profile];
   if (!p) throw new Error(`Unknown travel mode: ${profile}`);
+  if (!(g.profiles || ['car', 'bike', 'foot']).includes(profile)) {
+    const err = new Error('This road data was made before motorcycle routing existed. Update the road data of this area (Offline maps) to route by motorcycle.');
+    err.code = 'profile-unsupported';
+    throw err;
+  }
   const n = g.nodeId.length;
   const m = g.edgeA.length;
   const deg = new Uint32Array(n + 1);
@@ -129,7 +135,7 @@ export function prepare(g, profile) {
       list.push(e, k);
     }
   }
-  const maxSpeed = profile === 'foot' ? FOOT_SPEED : profile === 'bike' ? BIKE_SPEED : MAX_CAR_SPEED;
+  const maxSpeed = profile === 'foot' ? FOOT_SPEED : profile === 'bike' ? BIKE_SPEED : profile === 'motorcycle' ? MOTO_MAX_SPEED : MAX_CAR_SPEED;
   return { g, profile, off, to, via, dir, cost, allowed, grid, maxSpeed };
 }
 

@@ -13,12 +13,12 @@ const FEATURES = [
     text: 'Your position, accuracy and movement. GPS works without a data connection.',
   },
   {
-    title: 'KML and Google Earth',
-    text: 'Import KML, KMZ and GeoJSON, draw paths and areas, and export them for Google Earth.',
+    title: 'Search and directions offline',
+    text: 'Find places, streets and businesses in your downloaded areas, and get driving, motorcycle or walking directions without internet.',
   },
   {
     title: '3D globe',
-    text: 'See your places and layers on a 3D Earth, also offline.',
+    text: 'See your places on a 3D Earth, also offline.',
   },
 ];
 

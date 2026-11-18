@@ -447,10 +447,12 @@ export default function GlobePage() {
               <input type="checkbox" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />
               Saved places ({locations.length})
             </label>
-            <label className="check">
-              <input type="checkbox" checked={showLayers} onChange={(e) => setShowLayers(e.target.checked)} />
-              KML layers &amp; drawings ({collections.length})
-            </label>
+            {collections.length > 0 && (
+              <label className="check">
+                <input type="checkbox" checked={showLayers} onChange={(e) => setShowLayers(e.target.checked)} />
+                Imported layers &amp; drawings ({collections.length})
+              </label>
+            )}
             <label className="check">
               <input type="checkbox" checked={showRegions} onChange={(e) => setShowRegions(e.target.checked)} />
               Downloaded area outlines

@@ -136,15 +136,15 @@ export default function DashboardPage() {
                     <Link to="/saved">{locations.length}</Link>
                   </dd>
                 </div>
-                <div>
-                  <dt>Layers</dt>
-                  <dd>
-                    <Link to="/layers">
+                {layers.length > 0 && (
+                  <div>
+                    <dt>Imported layers</dt>
+                    <dd>
                       {layers.length} layer{layers.length === 1 ? '' : 's'}, {featureCount} feature
                       {featureCount === 1 ? '' : 's'}
-                    </Link>
-                  </dd>
-                </div>
+                    </dd>
+                  </div>
+                )}
               </dl>
             </div>
           </section>

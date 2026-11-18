@@ -50,7 +50,6 @@ const NAV = [
   { to: '/download', label: 'Download area', icon: 'download' },
   { to: '/my-maps', label: 'Offline maps', icon: 'layers' },
   { to: '/saved', label: 'Saved places', icon: 'pin' },
-  { to: '/layers', label: 'Layers & KML', icon: 'path' },
   { to: '/globe', label: '3D globe', icon: 'globe' },
 ];
 const SECONDARY = [
@@ -59,11 +58,12 @@ const SECONDARY = [
   { to: '/settings', label: 'Settings', icon: 'text' },
 ];
 // Bottom navigation on phones: the four most used places plus "More".
+// (The Layers & KML page is no longer in the navigation; its data and the /layers address remain.)
 const MOBILE = [
   { to: '/map', label: 'Map', icon: 'map' },
   { to: '/download', label: 'Download', icon: 'download' },
   { to: '/saved', label: 'Places', icon: 'pin' },
-  { to: '/layers', label: 'Layers', icon: 'path' },
+  { to: '/my-maps', label: 'Offline', icon: 'layers' },
 ];
 
 const STATUS_TEXT = { online: 'Online', limited: 'Server unreachable', offline: 'Offline' };
@@ -251,7 +251,7 @@ export default function AppLayout() {
         <>
           <div className="sheet-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
           <div className="more-sheet" role="dialog" aria-label="More">
-            {[NAV[2], NAV[5], ...SECONDARY].map((item) => (
+            {[...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].map((item) => (
               <NavLink key={item.to} to={item.to} className="nav-item">
                 <Icon name={item.icon} size={18} />
                 <span>{item.label}</span>

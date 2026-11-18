@@ -4,7 +4,7 @@
 //   bottom-right location: go to me, start/stop tracking, follow
 //   bottom-left  GPS read-out (live / last known, accuracy, time) and coordinates
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation as useRouterLocation } from 'react-router-dom';
+import { useLocation as useRouterLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useLocation } from '../hooks/LocationContext';
@@ -141,7 +141,7 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
             {[
               ['regions', 'Downloaded areas'],
               ['places', 'Saved places'],
-              ['layers', `KML layers & drawings (${layerCount})`],
+              ...(layerCount > 0 ? [['layers', `Imported layers & drawings (${layerCount})`]] : []),
             ].map(([key, label]) => (
               <label key={key} className="check">
                 <input
@@ -153,9 +153,6 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
               </label>
             ))}
           </fieldset>
-          <Link to="/layers" className="ctrl-link">
-            Manage layers and KML files
-          </Link>
         </div>
       )}
     </div>

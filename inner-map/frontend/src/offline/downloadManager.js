@@ -129,7 +129,18 @@ async function preflight(provider, tileCount) {
  * Download the road network of a downloaded area (for offline directions) and store it on the
  * device. Independent of the map tiles: it can be added or retried later.
  */
+const routingJobs = new Set(); // regions whose road data is downloading in this tab
+
 export async function downloadRoutingData(regionId) {
+  routingJobs.add(regionId);
+  try {
+    return await downloadRoutingDataJob(regionId);
+  } finally {
+    routingJobs.delete(regionId);
+  }
+}
+
+async function downloadRoutingDataJob(regionId) {
   const region = await getRegion(regionId);
   if (!region) throw new Error('Downloaded area not found.');
   if (!navigator.onLine) throw new Error('Connect to the internet to download road data.');
@@ -528,12 +539,20 @@ export async function recoverInterruptedDownloads(userId) {
   const regions = await listRegions(userId);
   await Promise.all(
     regions
-      .filter((r) => (r.status === 'downloading' || Object.values(r.packs || {}).some((p) => p.status === 'downloading')) && !jobs.has(r.id))
+      .filter(
+        (r) =>
+          ((r.status === 'downloading' || Object.values(r.packs || {}).some((p) => p.status === 'downloading')) && !jobs.has(r.id)) ||
+          (r.routing?.status === 'downloading' && !routingJobs.has(r.id))
+      )
       .map((r) =>
         patchRegion(r.id, {
-          ...(r.status === 'downloading' ? { status: 'interrupted', error: 'The download was interrupted (the app was closed). Resume it to finish.' } : {}),
+          ...(r.status === 'downloading' && !jobs.has(r.id) ? { status: 'interrupted', error: 'The download was interrupted (the app was closed). Resume it to finish.' } : {}),
+          // road data whose download was cut off by closing/reloading the app: offer Retry
+          ...(r.routing?.status === 'downloading' && !routingJobs.has(r.id)
+            ? { routing: { status: 'failed', error: 'Interrupted (the app was closed or reloaded). Retry to download it.' } }
+            : {}),
           packs: Object.fromEntries(
-            Object.entries(r.packs || {}).map(([k, p]) => [k, p.status === 'downloading' ? { ...p, status: 'interrupted', error: 'Interrupted (the app was closed). Resume to finish.' } : p])
+            Object.entries(r.packs || {}).map(([k, p]) => [k, p.status === 'downloading' && !jobs.has(r.id) ? { ...p, status: 'interrupted', error: 'Interrupted (the app was closed). Resume to finish.' } : p])
           ),
         })
       )

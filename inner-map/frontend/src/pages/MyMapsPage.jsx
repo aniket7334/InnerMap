@@ -8,6 +8,7 @@ import Alert from '../components/Alert';
 import ProgressBar from '../components/ProgressBar';
 import { useInitialFit, unionBounds } from '../hooks/useInitialFit';
 import { providerForRegion } from '../maps/providers';
+import { boundsAreaKm2 } from '../maps/tileMath';
 import { useMapProvider } from '../hooks/ProviderContext';
 import { cancelDownload, deleteRegion, resumeDownload, downloadRoutingData, pauseDownload, addPacks, removePack, isDownloading, PACKS } from '../offline/downloadManager';
 import { cleanupOrphanTiles, countStoredTiles } from '../offline/tileStore';
@@ -28,6 +29,23 @@ const STATUS_LABEL = {
   paused: 'Paused',
   pending: 'Waiting',
 };
+
+const coverageText = (b) => {
+  const lat = (v) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? 'N' : 'S'}`;
+  const lng = (v) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? 'E' : 'W'}`;
+  return `${lat(b.south)}–${lat(b.north)}, ${lng(b.west)}–${lng(b.east)}`;
+};
+
+/** One small chip per kind of offline data an area holds. */
+function dataChips(r, source) {
+  const out = [];
+  const state = (st) => (st === 'completed' ? 'ok' : st === 'downloading' || st === 'building' || st === 'pending' ? 'busy' : st ? 'bad' : '');
+  out.push({ label: 'Map', cls: state(r.status) });
+  if (source?.kind === 'vector') out.push({ label: r.search?.status === 'completed' ? `Search · ${r.search.count.toLocaleString()}` : 'Search', cls: state(r.search?.status) });
+  out.push({ label: 'Road data', cls: state(r.routing?.status) });
+  for (const id of Object.keys(PACKS)) out.push({ label: PACKS[id].label.replace(' (elevation)', ''), cls: state(r.packs?.[id]?.status) });
+  return out;
+}
 
 const totalSize = (r) => (r.size || 0) + Object.values(r.packs || {}).reduce((n, p) => n + (p.size || 0), 0) + (r.routing?.bytes || 0);
 
@@ -266,7 +284,7 @@ export default function MyMapsPage() {
                 const retry = r.status === 'failed' || r.status === 'partial' || packEntries.some(([, p]) => ['failed', 'partial'].includes(p.status));
                 return (
                   <li key={r.id}>
-                    <div className="item-row">
+                    <div className="region-card-head">
                       {regions.length > 1 && (
                         <input
                           type="checkbox"
@@ -276,14 +294,28 @@ export default function MyMapsPage() {
                           aria-label={`Select ${r.name}`}
                         />
                       )}
-                      <span className={`dot dot-${r.status}`} />
-                      <button className="item-main" onClick={() => setFitTo({ ...r.bounds })} title="Show on the map">
+                      <button className="item-main" onClick={() => setFitTo({ ...r.bounds })} title="Show this area on the map">
                         <span className="item-title">{r.name}</span>
-                        <span className="item-meta">
-                          {STATUS_LABEL[r.status] || r.status} · {formatBytes(totalSize(r))} · zoom {r.zoomMin}–{r.zoomMax}
-                          {r.serverId ? '' : ' · not synced'}
+                        <span className="region-card-meta">
+                          <span>{coverageText(r.bounds)}</span>
+                          <span>{Math.round(boundsAreaKm2(r.bounds)).toLocaleString()} km²</span>
+                          <span>{formatBytes(totalSize(r))}</span>
+                          <span>Downloaded {new Date(r.createdAt).toLocaleDateString()}</span>
+                          <span>
+                            zoom {r.zoomMin}–{r.zoomMax}
+                          </span>
+                          {!r.serverId && <span>not synced</span>}
                         </span>
                       </button>
+                      <span className={`chip chip-${r.status} status-chip`}>{STATUS_LABEL[r.status] || r.status}</span>
+                    </div>
+                    <div className="region-chips" aria-label="Offline data in this area">
+                      {dataChips(r, source).map((c) => (
+                        <span key={c.label} className={`region-chip ${c.cls}`}>
+                          {c.cls === 'ok' ? '✓ ' : ''}
+                          {c.label}
+                        </span>
+                      ))}
                     </div>
                     {r.status !== 'completed' && (
                       <ProgressBar

@@ -1,8 +1,10 @@
-// Signed-in shell, GIS-style.
-//  Desktop: compact toolbar (brand, search, map source, connection) + left sidebar
-//           (navigation and the offline maps on this device) + the page, usually a map.
-//  Mobile:  toolbar with search on top, the page full-screen, bottom navigation.
-import { useEffect, useState } from 'react';
+// Signed-in shell.
+//  Desktop: dark navigation sidebar (Workspace / Your library, offline card, settings, user menu)
+//           + a light top bar (breadcrumb, search on non-map pages, GPS, sync, connection,
+//           light/dark switch) + the page. On the map page the search floats on the map.
+//  Mobile:  compact top bar, the page full-screen, bottom navigation + "More" sheet.
+import { useEffect, useRef, useState } from 'react';
+import { currentTheme, setTheme } from '../theme';
 import { NavLink, Outlet, useNavigate, useLocation as useRouterLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
@@ -45,18 +47,32 @@ function ToolbarGps() {
 }
 import { formatBytes, getStorageEstimate } from '../offline/storage';
 
-const NAV = [
-  { to: '/map', label: 'Map', icon: 'map' },
+// Sidebar groups. "Route planner" opens the Directions panel on the map.
+const WORKSPACE = [
+  { to: '/map', label: 'Map explorer', icon: 'map', end: true },
+  { to: '/map', label: 'Route planner', icon: 'route2', state: { openDirections: true }, route: true },
   { to: '/download', label: 'Download area', icon: 'download' },
-  { to: '/my-maps', label: 'Offline maps', icon: 'layers' },
-  { to: '/saved', label: 'Saved places', icon: 'pin' },
   { to: '/globe', label: '3D globe', icon: 'globe' },
 ];
-const SECONDARY = [
+const LIBRARY = [
+  { to: '/saved', label: 'Saved places', icon: 'pin' },
+  { to: '/my-maps', label: 'Offline maps', icon: 'layers' },
   { to: '/dashboard', label: 'Overview', icon: 'dashboard' },
-  { to: '/profile', label: 'Account', icon: 'user' },
-  { to: '/settings', label: 'Settings', icon: 'text' },
+  { to: '/profile', label: 'Account & history', icon: 'history' },
 ];
+const NAV = [...WORKSPACE.filter((n) => !n.route), ...LIBRARY];
+const SECONDARY = [{ to: '/settings', label: 'Settings', icon: 'settings' }];
+const PAGE_TITLE = {
+  '/map': ['Workspace', 'Map explorer'],
+  '/download': ['Workspace', 'Download area'],
+  '/globe': ['Workspace', '3D globe'],
+  '/saved': ['Your library', 'Saved places'],
+  '/my-maps': ['Your library', 'Offline maps'],
+  '/dashboard': ['Your library', 'Overview'],
+  '/profile': ['Your library', 'Account & history'],
+  '/settings': ['Account', 'Settings'],
+  '/layers': ['Your library', 'Layers'],
+};
 // Bottom navigation on phones: the four most used places plus "More".
 // (The Layers & KML page is no longer in the navigation; its data and the /layers address remain.)
 const MOBILE = [
@@ -129,8 +145,119 @@ export default function AppLayout() {
 
   const isMapPage = ['/map', '/globe'].includes(routerLocation.pathname);
 
+  const [title0, title1] = PAGE_TITLE[routerLocation.pathname] || ['Workspace', 'Inner Map'];
+  const totalSize = regions.reduce((n, r) => n + (r.size || 0), 0);
+  const [theme, setThemeState] = useState(currentTheme);
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    setThemeState(next);
+  };
+  const [userMenu, setUserMenu] = useState(false);
+  const userRef = useRef(null);
+  useEffect(() => {
+    if (!userMenu) return undefined;
+    const close = (e) => userRef.current && !userRef.current.contains(e.target) && setUserMenu(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [userMenu]);
+  const initials = user.name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  const navLink = (item) => (
+    <NavLink
+      key={item.label}
+      to={item.to}
+      end={item.end}
+      state={item.state}
+      title={item.label}
+      className={({ isActive }) =>
+        `nav-item ${
+          isActive && (item.route ? Boolean(routerLocation.state?.openDirections) : !(item.end && routerLocation.state?.openDirections)) ? 'active' : ''
+        }`
+      }
+    >
+      <Icon name={item.icon} size={18} />
+      <span>{item.label}</span>
+    </NavLink>
+  );
+
   return (
-    <div className={`shell ${collapsed ? 'sidebar-collapsed' : ''}`}>
+    <div className={`shell ${collapsed ? 'sidebar-collapsed' : ''} ${isMapPage ? 'shell-map' : ''}`}>
+      <aside className="sidebar" aria-label="Navigation">
+        <NavLink to="/map" className="sidebar-brand" aria-label="Inner Map home">
+          <img src="/icons/icon.svg" alt="" width="28" height="28" />
+          <span>
+            Inner<strong>Map</strong>
+          </span>
+        </NavLink>
+
+        <nav className="nav" aria-label="Workspace">
+          <span className="nav-group-label">Workspace</span>
+          {WORKSPACE.map(navLink)}
+          <span className="nav-group-label">Your library</span>
+          {LIBRARY.map(navLink)}
+        </nav>
+
+        <section className="sidebar-offline">
+          <span className="sidebar-offline-icon" aria-hidden="true">
+            <Icon name="cloudDown" size={18} />
+          </span>
+          <strong>Explore offline</strong>
+          <p>
+            {regions.length
+              ? `${regions.length} offline map${regions.length === 1 ? '' : 's'} · ${formatBytes(totalSize)}${storage?.usage ? ` (${formatBytes(storage.usage)} used)` : ''}`
+              : 'Your maps, even without internet.'}
+          </p>
+          {regions.slice(0, 3).map((r) => (
+            <button key={r.id} type="button" className="sidebar-region" onClick={() => openRegion(r)} title={`Show ${r.name} on the map`}>
+              <span className={`dot dot-${r.status}`} />
+              <span className="sidebar-region-name">{r.name}</span>
+              <span className="sidebar-region-meta">
+                {r.status === 'downloading'
+                  ? `${Math.round((r.doneCount / Math.max(1, r.tileCount)) * 100)}%`
+                  : r.status === 'completed'
+                    ? formatBytes(r.size)
+                    : REGION_STATUS[r.status]}
+              </span>
+            </button>
+          ))}
+          <NavLink to={regions.length > 3 ? '/my-maps' : '/download'} className="sidebar-offline-link">
+            {regions.length > 3 ? 'All offline maps' : 'Download a map'} <Icon name="external" size={13} />
+          </NavLink>
+        </section>
+
+        <div className="sidebar-foot">
+          {SECONDARY.map(navLink)}
+          <div className="sidebar-user" ref={userRef}>
+            <button type="button" className="sidebar-user-btn" onClick={() => setUserMenu((o) => !o)} aria-expanded={userMenu} title={user.name}>
+              <span className="avatar" aria-hidden="true">
+                {initials}
+              </span>
+              <span className="sidebar-user-text">
+                <span className="sidebar-user-name">{user.name}</span>
+                <span className="sidebar-user-sub">Personal workspace</span>
+              </span>
+              <Icon name="chevronDown" size={16} />
+            </button>
+            {userMenu && (
+              <div className="user-menu" role="menu">
+                <NavLink to="/profile" role="menuitem" onClick={() => setUserMenu(false)}>
+                  <Icon name="user" size={16} /> Account
+                </NavLink>
+                <button type="button" role="menuitem" onClick={handleLogout}>
+                  <Icon name="logout" size={16} /> Log out
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
       <header className="toolbar">
         <button
           type="button"
@@ -140,21 +267,19 @@ export default function AppLayout() {
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           aria-pressed={collapsed}
         >
-          <Icon name="menu" size={18} />
+          <Icon name="sidebar" size={18} />
         </button>
         <NavLink to="/map" className="toolbar-brand" aria-label="Inner Map home">
-          <img src="/icons/icon.svg" alt="" width="22" height="22" />
-          <span>Inner Map</span>
+          <img src="/icons/icon.svg" alt="" width="24" height="24" />
         </NavLink>
-        <SearchBox />
+        <nav className="breadcrumb" aria-label="Breadcrumb">
+          <span>{title0}</span>
+          <Icon name="chevron" size={14} />
+          <strong aria-current="page">{title1}</strong>
+        </nav>
+        {!isMapPage && <SearchBox />}
         <div className="toolbar-status">
           <ToolbarGps />
-          <span className="status-item source" title={provider.description}>
-            {provider.label}
-          </span>
-          <span className={`status-item conn conn-${status}`} title={STATUS_TEXT[status]} role="status">
-            <span className="dot" /> <span className="conn-text">{STATUS_TEXT[status]}</span>
-          </span>
           {pendingCount > 0 && (
             <button
               type="button"
@@ -163,67 +288,17 @@ export default function AppLayout() {
               disabled={syncing || status !== 'online'}
               title="Changes saved on this device, waiting to be sent to the server"
             >
-              {syncing ? 'Syncing...' : `${pendingCount} to sync`}
+              {syncing ? 'Syncing…' : `${pendingCount} to sync`}
             </button>
           )}
+          <span className={`status-pill conn-${status}`} title={`${STATUS_TEXT[status]} · map: ${provider.label}`} role="status">
+            <span className="dot" /> <span className="conn-text">{STATUS_TEXT[status]}</span>
+          </span>
+          <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme} title={theme === 'dark' ? 'Light appearance' : 'Dark appearance'} aria-label={theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance'}>
+            <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+          </button>
         </div>
       </header>
-
-      <aside className="sidebar" aria-label="Navigation">
-        <nav className="nav">
-          {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} title={item.label} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Icon name={item.icon} size={17} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        <section className="sidebar-section">
-          <div className="sidebar-heading">
-            <span>On this device</span>
-            {storage?.usage ? <span className="muted">{formatBytes(storage.usage)}</span> : null}
-          </div>
-          {regions.length === 0 ? (
-            <p className="sidebar-empty">
-              No offline maps yet. <NavLink to="/download">Download an area</NavLink> to use the map without internet.
-            </p>
-          ) : (
-            <ul className="region-nav">
-              {regions.map((r) => (
-                <li key={r.id}>
-                  <button type="button" onClick={() => openRegion(r)} title={`Show ${r.name} on the map`}>
-                    <span className={`dot dot-${r.status}`} />
-                    <span className="region-nav-name">{r.name}</span>
-                    <span className="region-nav-meta">
-                      {r.status === 'downloading'
-                        ? `${Math.round((r.doneCount / Math.max(1, r.tileCount)) * 100)}%`
-                        : r.status === 'completed'
-                          ? formatBytes(r.size)
-                          : REGION_STATUS[r.status]}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <div className="sidebar-foot">
-          {SECONDARY.map((item) => (
-            <NavLink key={item.to} to={item.to} title={item.label} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
-              <Icon name={item.icon} size={17} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-          <div className="sidebar-user">
-            <span className="sidebar-user-name">{user.name}</span>
-            <button type="button" className="text-btn" onClick={handleLogout}>
-              Log out
-            </button>
-          </div>
-        </div>
-      </aside>
 
       <main className={`main ${isMapPage ? 'main-map' : ''}`}>
         <Outlet />
@@ -251,17 +326,21 @@ export default function AppLayout() {
         <>
           <div className="sheet-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
           <div className="more-sheet" role="dialog" aria-label="More">
-            {[...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].map((item) => (
-              <NavLink key={item.to} to={item.to} className="nav-item">
+            <span className="sheet-handle" aria-hidden="true" />
+            {[WORKSPACE[1], ...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].map((item) => (
+              <NavLink key={item.label} to={item.to} state={item.state} className="nav-item">
                 <Icon name={item.icon} size={18} />
                 <span>{item.label}</span>
               </NavLink>
             ))}
             <div className="sheet-status">
-              <span className={`status-item conn conn-${status}`}>
+              <span className={`status-pill conn-${status}`}>
                 <span className="dot" /> {STATUS_TEXT[status]}
               </span>
               <span className="muted small">Map: {provider.label}</span>
+              <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme} aria-label="Switch appearance">
+                <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
+              </button>
             </div>
             <button type="button" className="nav-item" onClick={handleLogout}>
               <Icon name="logout" size={18} />

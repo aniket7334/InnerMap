@@ -730,13 +730,20 @@ export default function MapView({
         </button>
       )}
       {showCoordinates && center && (
-        <div className="map-coords" aria-live="off">
-          <span>
-            {cursor ? 'Cursor' : 'Center'}: {formatCoord((cursor || center).lat, 5)},{' '}
-            {formatCoord((cursor || center).lng, 5)}
+        <div className="map-coords map-statusbar" aria-live="off">
+          <span className={`statusbar-state conn-${status}`}>
+            <span className="dot" />
+            {status === 'offline' ? 'Offline - showing data stored on this device' : status === 'limited' ? 'Inner Map server unreachable' : 'Map ready'}
+            <span className="statusbar-source"> · {view === 'satellite' ? SATELLITE_SOURCE.label : provider.label}</span>
           </span>
-          <span className="map-coords-zoom">z{zoom}</span>
-          {view === 'terrain' && <span className="map-coords-elev">{elevation == null ? 'Elevation: –' : `Elevation: ${Math.round(elevation)} m`}</span>}
+          <span className="statusbar-coords">
+            <span>
+              {cursor ? 'Cursor' : 'Center'} {formatCoord((cursor || center).lat, 5)}, {formatCoord((cursor || center).lng, 5)}
+            </span>
+            <span className="map-coords-zoom">z{zoom}</span>
+            {view === 'terrain' && <span className="map-coords-elev">{elevation == null ? 'Elevation –' : `Elevation ${Math.round(elevation)} m`}</span>}
+            <span className="statusbar-datum">WGS 84</span>
+          </span>
         </div>
       )}
       {!notice && viewNotice && noticeDismissed !== viewNotice.id && (

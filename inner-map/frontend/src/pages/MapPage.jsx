@@ -4,7 +4,8 @@
 //   bottom-right location: go to me, start/stop tracking, follow
 //   bottom-left  GPS read-out (live / last known, accuracy, time) and coordinates
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation as useRouterLocation } from 'react-router-dom';
+import { useNavigate, useLocation as useRouterLocation } from 'react-router-dom';
+import SearchBox from '../components/SearchBox';
 import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useLocation } from '../hooks/LocationContext';
@@ -74,13 +75,18 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
     <div className="ctrl-anchor" ref={ref}>
       <button
         type="button"
-        className={`ctrl-btn ${open ? 'on' : ''}`}
+        className={`layers-btn ${open ? 'on' : ''}`}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        title="Layers"
+        title="Map view, labels and base map"
         aria-label="Layers"
       >
-        <Icon name="layers" size={18} />
+        <span className={`layers-thumb view-${mapView}`} aria-hidden="true">
+          <span className="view-swatch" />
+        </span>
+        <Icon name="layers" size={16} />
+        <span className="layers-label">Layers</span>
+        <Icon name="chevronDown" size={14} />
       </button>
       {open && (
         <div className="ctrl-popover" role="dialog" aria-label="Map layers">
@@ -181,6 +187,7 @@ export default function MapPage() {
   const [nav, setNav] = useState(null);
   const { collections } = useFeatureLayers(user.id);
   const routerLocation = useRouterLocation();
+  const navigate = useNavigate();
 
   const [overlays, setOverlays] = useState({ regions: true, places: true, layers: true });
   const [layersOpen, setLayersOpen] = useState(false);
@@ -205,6 +212,22 @@ export default function MapPage() {
     () => regions.filter((r) => r.layerId === provider.layerId && r.doneCount > 0 && r.status !== 'downloading'),
     [regions, provider.layerId]
   );
+
+  // Sidebar "Route planner" opens the Directions panel.
+  useEffect(() => {
+    if (routerLocation.state?.openDirections) {
+      setMeasure(null);
+      setRouteOpen(true);
+    }
+  }, [routerLocation.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Download page, pre-filled with the area currently on screen.
+  const downloadView = () => {
+    const b = mapRef.current?.getBounds();
+    if (!b) return navigate('/download');
+    const p = new URLSearchParams({ south: b.getSouth().toFixed(5), west: b.getWest().toFixed(5), north: b.getNorth().toFixed(5), east: b.getEast().toFixed(5) });
+    return navigate(`/download?${p}`);
+  };
 
   // Opening: a search/sidebar target, else the GPS fix, else the newest downloaded area,
   // else the server's data area.
@@ -355,22 +378,11 @@ export default function MapPage() {
           />
         )}
         <div className={`map-ctrl map-ctrl-tools ${nav ? 'hidden-while-nav' : ''}`}>
-          <div className="ctrl-group">
+          <div className="map-search-row">
+            <SearchBox variant="map" />
             <button
               type="button"
-              className={`ctrl-btn ctrl-btn-text ${addMenu || pickMode || draft ? 'on' : ''}`}
-              onClick={() => {
-                setPickMode(false);
-                setDraft(null);
-                setAddMenu((o) => !o);
-              }}
-              aria-expanded={addMenu}
-            >
-              <Icon name="plus" size={16} /> <span className="ctrl-label">Add place</span>
-            </button>
-            <button
-              type="button"
-              className={`ctrl-btn ctrl-btn-text ${routeOpen ? 'on' : ''}`}
+              className={`btn btn-primary map-directions-btn ${routeOpen ? 'on' : ''}`}
               onClick={() => {
                 setMeasure(null);
                 if (routeOpen) closeRoute();
@@ -378,21 +390,7 @@ export default function MapPage() {
               }}
               aria-expanded={routeOpen}
             >
-              <Icon name="route" size={16} /> <span className="ctrl-label">Directions</span>
-            </button>
-            <button
-              type="button"
-              className={`ctrl-btn ctrl-btn-text ${measure ? 'on' : ''}`}
-              onClick={() => {
-                setPlaceCard(null);
-                // one tool panel at a time (they share the bottom sheet on phones); the route line stays
-                setRouteOpen(false);
-                setRoutePick(null);
-                setMeasure((m) => (m ? null : { mode: 'distance', points: [], unit: 'auto' }));
-              }}
-              aria-expanded={Boolean(measure)}
-            >
-              <Icon name="ruler" size={16} /> <span className="ctrl-label">Measure</span>
+              <Icon name="route2" size={17} /> <span className="ctrl-label">Directions</span>
             </button>
           </div>
           {measure && <MeasurePanel state={measure} setState={setMeasure} route={routeView.route} onClose={() => setMeasure(null)} />}
@@ -473,38 +471,27 @@ export default function MapPage() {
           </div>
         )}
 
-        {/* top-right: layers + full screen (under Leaflet's zoom buttons) */}
-        <div className="map-ctrl map-ctrl-layers">
-          <LayerControl
-            open={layersOpen}
-            setOpen={setLayersOpen}
-            provider={provider}
-            providers={providers}
-            setProviderId={setProviderId}
-            overlays={overlays}
-            setOverlays={setOverlays}
-            layerCount={collections.length}
-            mapView={mapView}
-            setMapView={setMapView}
-            poiFilter={poiFilter}
-            setPoiFilter={setPoiFilter}
-          />
-          <button
-            type="button"
-            className={`ctrl-btn ${fullscreen.active ? 'on' : ''}`}
-            onClick={fullscreen.toggle}
-            title={fullscreen.active ? 'Exit full screen' : 'Full screen'}
-            aria-label={fullscreen.active ? 'Exit full screen' : 'Full screen'}
-            aria-pressed={fullscreen.active}
-          >
-            <Icon name={fullscreen.active ? 'shrink' : 'expand'} size={17} />
-          </button>
-        </div>
-
-        {/* bottom-right: location */}
-        <div className="map-ctrl map-ctrl-location">
-          <div className="ctrl-group vertical">
-            <button type="button" className="ctrl-btn" onClick={locate} title="Locate me" aria-label="Locate me">
+        {/* right rail: compass, zoom, location, tools */}
+        <div className={`map-rail ${nav ? 'hidden-while-nav' : ''}`}>
+          <span className="compass" role="img" aria-label="North is up" title="North is up (the map is always shown north-up)">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M12 3 15 12h-6z" fill="#e5484d" />
+              <path d="M12 21 9 12h6z" fill="currentColor" opacity="0.55" />
+            </svg>
+            <span>N</span>
+          </span>
+          <div className="rail-group">
+            <button type="button" className="ctrl-btn" onClick={() => mapRef.current?.zoomIn()} title="Zoom in" aria-label="Zoom in">
+              <Icon name="plus" size={18} />
+            </button>
+            <button type="button" className="ctrl-btn" onClick={() => mapRef.current?.zoomOut()} title="Zoom out" aria-label="Zoom out">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
+          </div>
+          <div className="rail-group">
+            <button type="button" className="ctrl-btn accent" onClick={locate} title="Locate me" aria-label="Locate me">
               <Icon name="crosshair" size={18} />
             </button>
             <button
@@ -529,7 +516,76 @@ export default function MapPage() {
               <Icon name="navigation" size={16} />
             </button>
           </div>
+          <div className="rail-group">
+            <button
+              type="button"
+              className={`ctrl-btn ${measure ? 'on' : ''}`}
+              onClick={() => {
+                setPlaceCard(null);
+                // one tool panel at a time (they share the bottom sheet on phones); the route line stays
+                setRouteOpen(false);
+                setRoutePick(null);
+                setMeasure((m) => (m ? null : { mode: 'distance', points: [], unit: 'auto' }));
+              }}
+              aria-expanded={Boolean(measure)}
+              title="Measure distance and area"
+              aria-label="Measure"
+            >
+              <Icon name="ruler" size={17} />
+            </button>
+            <button
+              type="button"
+              className={`ctrl-btn ${addMenu || pickMode || draft ? 'on' : ''}`}
+              onClick={() => {
+                setPickMode(false);
+                setDraft(null);
+                setAddMenu((o) => !o);
+              }}
+              aria-expanded={addMenu}
+              title="Add a place"
+              aria-label="Add place"
+            >
+              <Icon name="pin" size={17} />
+            </button>
+            <button
+              type="button"
+              className={`ctrl-btn ${fullscreen.active ? 'on' : ''}`}
+              onClick={fullscreen.toggle}
+              title={fullscreen.active ? 'Exit full screen' : 'Full screen'}
+              aria-label={fullscreen.active ? 'Exit full screen' : 'Full screen'}
+              aria-pressed={fullscreen.active}
+            >
+              <Icon name={fullscreen.active ? 'shrink' : 'expand'} size={17} />
+            </button>
+          </div>
         </div>
+
+        {/* bottom-left: layers; bottom-right: download this area */}
+        <div className={`map-ctrl map-ctrl-layers ${nav ? 'hidden-while-nav' : ''}`}>
+          <LayerControl
+            open={layersOpen}
+            setOpen={setLayersOpen}
+            provider={provider}
+            providers={providers}
+            setProviderId={setProviderId}
+            overlays={overlays}
+            setOverlays={setOverlays}
+            layerCount={collections.length}
+            mapView={mapView}
+            setMapView={setMapView}
+            poiFilter={poiFilter}
+            setPoiFilter={setPoiFilter}
+          />
+        </div>
+        <button
+          type="button"
+          className={`map-download-btn ${nav ? 'hidden-while-nav' : ''}`}
+          onClick={downloadView}
+          title="Download this area for offline use"
+          aria-label="Download this area for offline use"
+        >
+          <Icon name="download" size={18} />
+        </button>
 
         {/* bottom-left: GPS read-out */}
         {placeCard && (

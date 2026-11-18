@@ -25,9 +25,18 @@ const RADII = [
   { value: 20000, label: 'Within 20 km' },
 ];
 
+// Quick category chips under the map search (same categories as the filter chips).
+const QUICK = [
+  { id: 'restaurants', label: 'Restaurants', icon: 'food' },
+  { id: 'hotels', label: 'Hotels', icon: 'bed' },
+  { id: 'hospitals', label: 'Hospitals', icon: 'medical' },
+  { id: 'fuel', label: 'Petrol', icon: 'fuel' },
+  { id: 'shopping', label: 'Shopping', icon: 'bag' },
+];
+
 const SOURCE_BADGE = { offline: 'Offline', saved: 'Saved', online: 'Online', area: 'Offline map', layer: 'Layer', coords: 'Coordinates' };
 
-export default function SearchBox({ onNavigate }) {
+export default function SearchBox({ onNavigate, variant = 'bar' }) {
   const { user } = useAuth();
   const { status } = useConnectivity();
   const { position } = useLocation();
@@ -81,6 +90,27 @@ export default function SearchBox({ onNavigate }) {
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, []);
+
+  // "/" focuses the search (when not typing somewhere else).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName))) return;
+      e.preventDefault();
+      inputRef.current?.focus();
+      setOpen(true);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
+  const pickQuick = (id) => {
+    if (id) setCategory(id);
+    setActive(-1);
+    setOpen(true);
+    inputRef.current?.focus();
+  };
 
   // Offline index search while typing (debounced).
   useEffect(() => {
@@ -210,14 +240,14 @@ export default function SearchBox({ onNavigate }) {
   }
 
   return (
-    <div className={`search ${showPanel ? 'is-open' : ''}`} ref={boxRef} role="search">
+    <div className={`search search-${variant} ${showPanel ? 'is-open' : ''}`} ref={boxRef} role="search">
       <Icon name="search" size={18} className="search-icon" />
       <input
         ref={inputRef}
         type="text"
         inputMode="search"
         value={query}
-        placeholder="Search places, streets, businesses or coordinates"
+        placeholder={variant === 'map' ? 'Search places, streets or coordinates' : 'Search places, streets, businesses or coordinates'}
         aria-label="Search places"
         role="combobox"
         aria-expanded={showPanel}
@@ -234,10 +264,28 @@ export default function SearchBox({ onNavigate }) {
         onClick={() => setOpen(true)}
         onKeyDown={onKeyDown}
       />
-      {query && (
+      {query ? (
         <button type="button" className="search-clear" onClick={clear} aria-label="Clear search" title="Clear search">
           <Icon name="close" size={16} />
         </button>
+      ) : (
+        <kbd className="search-kbd" aria-hidden="true" title="Press / to search">
+          /
+        </kbd>
+      )}
+      {variant === 'map' && !open && (
+        <div className="search-quick" role="group" aria-label="Find nearby">
+          {QUICK.map((c) => (
+            <button type="button" key={c.id} className={`quick-chip ${category === c.id ? 'active' : ''}`} onClick={() => pickQuick(c.id)}>
+              <Icon name={c.icon} size={15} />
+              {c.label}
+            </button>
+          ))}
+          <button type="button" className="quick-chip" onClick={() => pickQuick(null)} aria-label="More categories">
+            <Icon name="dots" size={15} />
+            More
+          </button>
+        </div>
       )}
       {open && (
         <div className="search-panel" id="search-results">

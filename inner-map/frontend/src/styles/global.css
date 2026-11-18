@@ -1462,11 +1462,129 @@ input:disabled {
 .gps-state {
   font-weight: var(--fw-semibold);
 }
-.gps-readout.live .gps-state {
+.gps-readout.gps-live .gps-state {
   color: var(--gps);
 }
-.gps-readout.stale .gps-state {
+.gps-readout.gps-last-known .gps-state,
+.gps-readout.gps-off .gps-state {
   color: var(--muted);
+}
+.gps-readout.gps-denied .gps-state,
+.gps-readout.gps-unavailable .gps-state,
+.gps-readout.gps-insecure .gps-state,
+.gps-readout.gps-unsupported .gps-state {
+  color: var(--danger);
+}
+.gps-readout-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.gps-readout-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.gps-coords {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gps-action {
+  flex: none;
+  margin-right: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.gps-action:hover {
+  background: var(--accent-weak);
+}
+.gps-problem {
+  margin: 0;
+  padding: 0 10px 7px;
+  max-width: 340px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: normal;
+}
+.gps-spinner {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border: 2px solid var(--gps);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: gps-spin 0.9s linear infinite;
+}
+@keyframes gps-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gps-spinner {
+    animation: none;
+    border-right-color: var(--gps);
+    opacity: 0.6;
+  }
+}
+/* one-time explanation before the browser's location prompt */
+.gps-intro {
+  position: absolute;
+  left: 50%;
+  top: 56px; /* below the Add place / Directions buttons */
+  transform: translateX(-50%);
+  z-index: 960;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, calc(100% - 24px));
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: var(--r);
+  box-shadow: var(--float-shadow);
+}
+.gps-intro-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.gps-intro-text strong {
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+.gps-intro-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+@media (max-width: 520px) {
+  .gps-intro {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .gps-intro-actions .btn {
+    flex: 1;
+  }
+}
+.status-item.gps.gps-denied,
+.status-item.gps.gps-unavailable {
+  color: var(--danger);
+}
+@media (max-width: 820px) {
+  /* phone toolbar: just the coloured dot; the map shows the full GPS status */
+  .status-item.gps .gps-text {
+    display: none;
+  }
 }
 .acc {
   font-variant-numeric: tabular-nums;

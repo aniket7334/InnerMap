@@ -13,6 +13,35 @@ import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import SearchBox from '../components/SearchBox';
 import { warmUpRouting } from '../routing/routingManager';
 import Icon from '../components/Icon';
+import { gpsState } from '../components/GpsStatus';
+import { formatDistance } from '../maps/geo';
+
+const GPS_TEXT = {
+  live: 'GPS',
+  locating: 'GPS…',
+  'last-known': 'GPS last known',
+  off: 'GPS off',
+  denied: 'GPS blocked',
+  unavailable: 'No GPS',
+  insecure: 'No GPS',
+  unsupported: 'No GPS',
+};
+
+/** Compact GPS indicator for the toolbar (details are on the map). */
+function ToolbarGps() {
+  const { position, fixStatus, locating, errorType, tracking } = useLocation();
+  const state = gpsState({ position, fixStatus, locating, errorType, tracking });
+  const acc = state === 'live' && position?.accuracy ? ` ±${formatDistance(position.accuracy)}` : '';
+  return (
+    <span className={`status-item gps gps-${state}`} title={`Location: ${GPS_TEXT[state]}${acc}`} aria-label={`Location: ${GPS_TEXT[state]}${acc}`} role="status">
+      <span className={`dot ${state === 'live' ? 'dot-gps' : ['denied', 'unavailable', 'insecure', 'unsupported'].includes(state) ? 'dot-failed' : ''}`} />
+      <span className="gps-text">
+        {GPS_TEXT[state]}
+        {acc}
+      </span>
+    </span>
+  );
+}
 import { formatBytes, getStorageEstimate } from '../offline/storage';
 
 const NAV = [
@@ -49,7 +78,6 @@ const REGION_STATUS = {
 export default function AppLayout() {
   const { user, logout } = useAuth();
   const { status, pendingCount, syncNow, syncing } = useConnectivity();
-  const { tracking } = useLocation();
   const { provider } = useMapProvider();
   const { regions } = useRegions(user.id);
   // Pull KML layers and drawings from the account (e.g. made on another device) whenever the
@@ -115,11 +143,7 @@ export default function AppLayout() {
         </NavLink>
         <SearchBox />
         <div className="toolbar-status">
-          {tracking && (
-            <span className="status-item gps" title="GPS tracking is on">
-              <span className="dot dot-gps" /> GPS
-            </span>
-          )}
+          <ToolbarGps />
           <span className="status-item source" title={provider.description}>
             {provider.label}
           </span>

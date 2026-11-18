@@ -16,6 +16,8 @@ const HISTORY_MIN_INTERVAL_MS = 60000;
 const HISTORY_FLUSH_MS = 60000;
 const TRACKING_FLAG = 'innermap.tracking';
 const LAST_FIX_KEY = 'innermap.lastFix';
+// Startup: remember that we already explained/asked, so the request is not repeated.
+const STARTUP_KEY = 'innermap.gpsStartup'; // 'asked' | 'dismissed'
 // A fix older than this while tracking is shown as "last known" (signal probably lost).
 export const STALE_AFTER_MS = 30000;
 
@@ -25,6 +27,28 @@ export function fixQuality(accuracy) {
   if (accuracy <= 20) return 'good';
   if (accuracy <= 100) return 'fair';
   return 'poor';
+}
+
+/** Machine-readable reason, so the UI can offer the right action. */
+function errorKind(err) {
+  if (!window.isSecureContext) return 'insecure';
+  return { 1: 'denied', 2: 'unavailable', 3: 'timeout' }[err?.code] || 'unavailable';
+}
+
+function readStartup() {
+  try {
+    return localStorage.getItem(STARTUP_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStartup(v) {
+  try {
+    localStorage.setItem(STARTUP_KEY, v);
+  } catch {
+    /* ignore */
+  }
 }
 
 function describeError(err) {
@@ -76,6 +100,10 @@ export function LocationProvider({ children }) {
   // located even before a new fix arrives (clearly labelled as "last known").
   const [position, setPosition] = useState(() => (user ? readLastFix() : null));
   const [error, setError] = useState(null);
+  const [errorType, setErrorType] = useState(supported ? null : 'unsupported'); // denied | unavailable | timeout | insecure | unsupported
+  const [locating, setLocating] = useState(false); // waiting for a fix
+  // 'ask' = show the explanation + "Use my location" button (browser has not been asked yet).
+  const [startupPrompt, setStartupPrompt] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [permission, setPermission] = useState('unknown');
   const [now, setNow] = useState(Date.now());
@@ -148,6 +176,8 @@ export function LocationProvider({ children }) {
       setPosition(p);
       setNow(Date.now());
       setError(null);
+      setErrorType(null);
+      setLocating(false);
       recordHistory(p);
       try {
         localStorage.setItem(LAST_FIX_KEY, JSON.stringify({ lat: p.lat, lng: p.lng, accuracy: p.accuracy, timestamp: p.timestamp }));
@@ -160,6 +190,9 @@ export function LocationProvider({ children }) {
 
   const onError = useCallback((err) => {
     setError(describeError(err));
+    setErrorType(errorKind(err));
+    // A timeout while watching keeps trying; anything else ends the "locating" state.
+    if (err.code !== 3) setLocating(false);
     if (err.code === 1) {
       // Permission denied: stop watching, nothing will arrive.
       if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
@@ -176,6 +209,10 @@ export function LocationProvider({ children }) {
     }
     if (watchId.current !== null) return;
     setError(null);
+    setErrorType(null);
+    setLocating(true);
+    setStartupPrompt(false);
+    writeStartup('asked');
     watchId.current = navigator.geolocation.watchPosition(onPosition, onError, WATCH_OPTIONS);
     setTracking(true);
     try {
@@ -189,6 +226,7 @@ export function LocationProvider({ children }) {
     if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current);
     watchId.current = null;
     setTracking(false);
+    setLocating(false);
     flushHistory();
     try {
       sessionStorage.removeItem(TRACKING_FLAG);
@@ -204,9 +242,13 @@ export function LocationProvider({ children }) {
         if (!supported) {
           const msg = 'This browser does not support location services.';
           setError(msg);
+          setErrorType('unsupported');
           reject(new Error(msg));
           return;
         }
+        setLocating(true);
+        setStartupPrompt(false);
+        writeStartup('asked');
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             onPosition(pos);
@@ -214,6 +256,8 @@ export function LocationProvider({ children }) {
           },
           (err) => {
             setError(describeError(err));
+            setErrorType(errorKind(err));
+            setLocating(false);
             reject(err);
           },
           LOCATE_OPTIONS
@@ -238,6 +282,11 @@ export function LocationProvider({ children }) {
   useEffect(() => {
     if (!user) {
       if (watchId.current !== null) stopTracking();
+      startupDone.current = false; // run the startup flow again for the next sign-in
+      setStartupPrompt(false);
+      setError(null);
+      setErrorType(supported ? null : 'unsupported');
+      setLocating(false);
       setPosition(null);
       try {
         localStorage.removeItem(LAST_FIX_KEY);
@@ -253,6 +302,52 @@ export function LocationProvider({ children }) {
       /* ignore */
     }
   }, [user, startTracking, stopTracking]);
+
+  // GPS-first startup (once per sign-in / page load):
+  //  - permission already granted  -> start live updates straight away (works offline)
+  //  - not decided yet             -> show a short explanation with one "Use my location" button;
+  //                                   the browser's own permission prompt opens from that click
+  //  - denied                      -> no prompt; the status explains how to allow it
+  // The explanation is shown only until the user has answered once (stored on this device).
+  const startupDone = useRef(false);
+  useEffect(() => {
+    if (!user || !supported || startupDone.current) return;
+    startupDone.current = true;
+    if (!window.isSecureContext) {
+      setErrorType('insecure');
+      setError(describeError(null));
+      return;
+    }
+    const decide = (state) => {
+      if (state === 'granted') startTracking();
+      else if (state === 'denied') {
+        setErrorType('denied');
+        setError(describeError({ code: 1 }));
+      } else if (readStartup() === 'asked' && state === 'unknown') {
+        // No Permissions API (older Safari): the user already allowed once - ask the browser directly.
+        startTracking();
+      } else if (readStartup() !== 'dismissed') setStartupPrompt(true);
+    };
+    if (navigator.permissions?.query) {
+      navigator.permissions.query({ name: 'geolocation' }).then((s) => decide(s.state), () => decide('unknown'));
+    } else decide('unknown');
+  }, [user, supported, startTracking]);
+
+  const dismissStartupPrompt = useCallback(() => {
+    setStartupPrompt(false);
+    writeStartup('dismissed');
+  }, []);
+
+  // Permission changed in the browser settings while the app is open.
+  useEffect(() => {
+    if (permission === 'granted' && errorType === 'denied') {
+      setError(null);
+      setErrorType(null);
+    } else if (permission === 'denied' && watchId.current === null && user) {
+      setErrorType('denied');
+      setError(describeError({ code: 1 }));
+    }
+  }, [permission]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Periodically queue recorded history points for upload.
   useEffect(() => {
@@ -278,6 +373,10 @@ export function LocationProvider({ children }) {
         supported,
         position,
         error,
+        errorType,
+        locating,
+        startupPrompt,
+        dismissStartupPrompt,
         tracking,
         permission,
         startTracking,

@@ -16,7 +16,7 @@ import { useMapFullscreen } from '../hooks/useMapFullscreen';
 import MapView from '../maps/MapView';
 import RoutePanel from '../components/RoutePanel';
 import Icon from '../components/Icon';
-import { formatCoord, formatDistance } from '../maps/geo';
+import GpsStatus, { GpsStartupPrompt } from '../components/GpsStatus';
 
 function LayerControl({ open, setOpen, provider, providers, setProviderId, overlays, setOverlays, layerCount }) {
   const ref = useRef(null);
@@ -78,83 +78,17 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
   );
 }
 
-function formatAge(ms) {
-  if (ms == null) return '';
-  const s = Math.round(ms / 1000);
-  if (s < 10) return 'just now';
-  if (s < 60) return `${s} s ago`;
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} days ago`;
-}
-
-const QUALITY_TEXT = {
-  good: 'Good GPS accuracy',
-  fair: 'Fair accuracy',
-  poor: 'Weak signal: the position may come from Wi-Fi or mobile networks. Move to open sky for GPS.',
-};
-
-function GpsReadout({ position, fixStatus, quality, ageMs, tracking }) {
-  const [open, setOpen] = useState(false);
-  if (!position) return null;
-  const live = fixStatus === 'live';
-  return (
-    <div className={`gps-readout ${live ? 'live' : 'stale'}`} aria-live="polite">
-      <button type="button" className="gps-readout-main" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className={`dot ${live ? 'dot-gps' : ''}`} />
-        <span className="gps-state">{live ? 'Live GPS' : 'Last known'}</span>
-        <span className="mono">
-          {formatCoord(position.lat, 6)}, {formatCoord(position.lng, 6)}
-        </span>
-        {position.accuracy ? (
-          <span className={`acc acc-${quality}`} title={QUALITY_TEXT[quality]}>
-            ± {formatDistance(position.accuracy)}
-          </span>
-        ) : null}
-      </button>
-      {open && (
-        <dl className="gps-details">
-          <div>
-            <dt>Updated</dt>
-            <dd>
-              {new Date(position.timestamp).toLocaleTimeString()} ({formatAge(ageMs)})
-            </dd>
-          </div>
-          <div>
-            <dt>Accuracy</dt>
-            <dd>{position.accuracy ? `± ${Math.round(position.accuracy)} m - ${QUALITY_TEXT[quality]}` : 'Not reported'}</dd>
-          </div>
-          {!live && (
-            <div>
-              <dt>Status</dt>
-              <dd>
-                {tracking
-                  ? 'No new fix for a while (signal lost?). Showing your last known position.'
-                  : position.restored
-                    ? 'Saved from your last session. Start tracking for your current position.'
-                    : 'Tracking is off. Start tracking for live updates.'}
-              </dd>
-            </div>
-          )}
-        </dl>
-      )}
-    </div>
-  );
-}
-
 export default function MapPage() {
   const { user } = useAuth();
   const { status } = useConnectivity();
   const {
     position,
     tracking,
-    error: gpsError,
     startTracking,
     stopTracking,
     locateOnce,
-    fixStatus,
-    quality,
-    ageMs,
+    startupPrompt,
+    dismissStartupPrompt,
   } = useLocation();
   const { regions } = useRegions(user.id);
   const { locations, add } = useSavedLocations(user.id);
@@ -200,6 +134,15 @@ export default function MapPage() {
     }
   }, [focus?.at]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // GPS-first: when the first live fix of this visit arrives, centre the map on it
+  // (unless the page was opened to show something else, e.g. a search result).
+  const flyOnFirstFix = useRef(!focus);
+  useEffect(() => {
+    if (!flyOnFirstFix.current || !position || position.restored || !mapRef.current) return;
+    flyOnFirstFix.current = false;
+    mapRef.current.flyTo([position.lat, position.lng], Math.max(mapRef.current.getZoom(), 16));
+  }, [position]);
+
   const autoFitted = useRef(false);
   const startArea = usable[0]?.bounds || (provider.kind === 'vector' && coverage?.available ? coverage.bounds : null);
   useEffect(() => {
@@ -233,6 +176,7 @@ export default function MapPage() {
 
   const locate = async () => {
     const map = mapRef.current;
+    flyOnFirstFix.current = false;
     try {
       const p = await locateOnce();
       map?.flyTo([p.lat, p.lng], Math.max(map.getZoom(), 16));
@@ -418,7 +362,6 @@ export default function MapPage() {
 
         {/* bottom-right: location */}
         <div className="map-ctrl map-ctrl-location">
-          {gpsError && <div className="ctrl-message">{gpsError}</div>}
           <div className="ctrl-group vertical">
             <button type="button" className="ctrl-btn" onClick={locate} title="Locate me" aria-label="Locate me">
               <Icon name="crosshair" size={18} />
@@ -448,7 +391,16 @@ export default function MapPage() {
         </div>
 
         {/* bottom-left: GPS read-out */}
-        <GpsReadout position={position} fixStatus={fixStatus} quality={quality} ageMs={ageMs} tracking={tracking} />
+        <GpsStatus onLocate={locate} />
+        {startupPrompt && (
+          <GpsStartupPrompt
+            onAllow={() => {
+              flyOnFirstFix.current = true;
+              startTracking();
+            }}
+            onDismiss={dismissStartupPrompt}
+          />
+        )}
 
         {toast && (
           <div className="map-toast" role="status">

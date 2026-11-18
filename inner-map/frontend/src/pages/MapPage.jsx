@@ -17,6 +17,7 @@ import MapView from '../maps/MapView';
 import RoutePanel from '../components/RoutePanel';
 import Icon from '../components/Icon';
 import { SATELLITE_SOURCE } from '../maps/providers';
+import { CATEGORY_COLOURS, LABEL_FILTER_CATEGORIES, categoryLabel, categoryOf, kindLabel } from '../search/categories';
 import GpsStatus, { GpsStartupPrompt } from '../components/GpsStatus';
 
 const VIEW_OPTIONS = [
@@ -26,7 +27,40 @@ const VIEW_OPTIONS = [
   { id: 'transit', label: 'Transit', note: 'Rail, metro, stations, stops' },
 ];
 
-function LayerControl({ open, setOpen, provider, providers, setProviderId, overlays, setOverlays, layerCount, mapView, setMapView }) {
+/** Details of a business / landmark / place tapped on the map (from the vector data). */
+function PlaceCard({ place, onClose, onSave, onDirections }) {
+  const category = place.layer === 'pois' ? categoryOf('pois', place.kind) : place.layer === 'roads' ? 'streets' : 'places';
+  const colour = CATEGORY_COLOURS[category]?.dot || '#6b717b';
+  return (
+    <div className="place-card" role="dialog" aria-label={place.name}>
+      <div className="place-card-head">
+        <span className="place-card-dot" style={{ background: colour }} aria-hidden="true" />
+        <div className="place-card-title">
+          <strong>{place.name}</strong>
+          <span className="muted small">
+            {kindLabel(place.kindDetail && place.layer === 'roads' ? place.kind : place.kind)} · {place.layer === 'pois' && category === 'places' ? 'Landmark' : categoryLabel(category)}
+          </span>
+        </div>
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
+          <Icon name="close" size={16} />
+        </button>
+      </div>
+      <p className="muted tiny">
+        {place.lat.toFixed(5)}, {place.lng.toFixed(5)} · OpenStreetMap data (no address or opening hours in the offline data)
+      </p>
+      <div className="place-card-actions">
+        <button type="button" className="btn btn-sm btn-primary" onClick={onDirections}>
+          <Icon name="route" size={14} /> Directions
+        </button>
+        <button type="button" className="btn btn-sm" onClick={onSave}>
+          <Icon name="pin" size={14} /> Save place
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LayerControl({ open, setOpen, provider, providers, setProviderId, overlays, setOverlays, layerCount, mapView, setMapView, poiFilter, setPoiFilter }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -60,6 +94,33 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
                 </label>
               ))}
             </div>
+          </fieldset>
+          <fieldset>
+            <legend>Business and landmark labels</legend>
+            <div className="label-filter">
+              {LABEL_FILTER_CATEGORIES.map((c) => (
+                <label key={c} className={`label-chip ${poiFilter.includes(c) ? 'on' : ''}`}>
+                  <input
+                    type="checkbox"
+                    checked={poiFilter.includes(c)}
+                    onChange={(e) => setPoiFilter(e.target.checked ? [...poiFilter, c] : poiFilter.filter((x) => x !== c))}
+                  />
+                  <span className="label-chip-dot" style={{ background: CATEGORY_COLOURS[c].dot }} aria-hidden="true" />
+                  {c === 'places' ? 'Landmarks' : categoryLabel(c)}
+                </label>
+              ))}
+            </div>
+            <div className="label-filter-actions">
+              <button type="button" className="link-btn" onClick={() => setPoiFilter(LABEL_FILTER_CATEGORIES)}>
+                All
+              </button>
+              <button type="button" className="link-btn" onClick={() => setPoiFilter([])}>
+                None
+              </button>
+            </div>
+            <small className="muted block">
+              Names from OpenStreetMap, on the offline vector map. Buildings show outlines and house numbers; building names are not in this data.
+            </small>
           </fieldset>
           <fieldset disabled={mapView === 'satellite'}>
             <legend>Base map{mapView === 'satellite' ? ' (not used in Satellite view)' : ''}</legend>
@@ -113,7 +174,8 @@ export default function MapPage() {
   } = useLocation();
   const { regions } = useRegions(user.id);
   const { locations, add } = useSavedLocations(user.id);
-  const { provider, providers, setProviderId, coverage, mapView, setMapView } = useMapProvider();
+  const { provider, providers, setProviderId, coverage, mapView, setMapView, poiFilter, setPoiFilter } = useMapProvider();
+  const [placeCard, setPlaceCard] = useState(null);
   const { collections } = useFeatureLayers(user.id);
   const routerLocation = useRouterLocation();
 
@@ -207,7 +269,13 @@ export default function MapPage() {
     }
   };
 
-  const onMapClick = (latlng) => {
+  const onMapClick = (latlng, _map, queryAt) => {
+    if (!routePick && !pickMode) {
+      const f = queryAt?.(latlng);
+      setPlaceCard(f ? { ...f, lat: latlng.lat, lng: latlng.lng } : null);
+      return;
+    }
+    setPlaceCard(null);
     if (routePick) {
       setRoutePicked({ field: routePick, lat: latlng.lat, lng: latlng.lng, at: Date.now() });
       setRoutePick(null);
@@ -371,6 +439,8 @@ export default function MapPage() {
             layerCount={collections.length}
             mapView={mapView}
             setMapView={setMapView}
+            poiFilter={poiFilter}
+            setPoiFilter={setPoiFilter}
           />
           <button
             type="button"
@@ -415,6 +485,22 @@ export default function MapPage() {
         </div>
 
         {/* bottom-left: GPS read-out */}
+        {placeCard && (
+          <PlaceCard
+            place={placeCard}
+            onClose={() => setPlaceCard(null)}
+            onSave={async () => {
+              await add({ name: placeCard.name.slice(0, 100), latitude: placeCard.lat, longitude: placeCard.lng });
+              setToast(status === 'online' ? `Saved “${placeCard.name}”` : `Saved “${placeCard.name}” on this device - it will sync when you are online`);
+              setPlaceCard(null);
+            }}
+            onDirections={() => {
+              setRouteOpen(true);
+              setRoutePicked({ field: 'end', lat: placeCard.lat, lng: placeCard.lng, label: placeCard.name, at: Date.now() });
+              setPlaceCard(null);
+            }}
+          />
+        )}
         <GpsStatus onLocate={locate} />
         {startupPrompt && (
           <GpsStartupPrompt

@@ -54,10 +54,10 @@ export class LocalFirstVectorSource {
  * @param typography  optional typography settings: label size/family per category
  *                    (see typography/mapLabels.js). Without it the stock style is used.
  */
-export function createVectorTileLayer(provider, typography) {
+export function createVectorTileLayer(provider, typography, labelOptions) {
   return leafletLayer({
     url: new LocalFirstVectorSource(provider),
-    ...vectorStyle(typography),
+    ...vectorStyle(typography, labelOptions),
     lang: 'en',
     maxDataZoom: provider.maxDataZoom,
     minZoom: provider.minZoom,

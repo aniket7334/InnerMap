@@ -79,3 +79,24 @@ export function kindLabel(kind) {
 export function categoryLabel(id) {
   return CATEGORIES.find((c) => c.id === id)?.label || 'Other';
 }
+
+/** Map symbol colours per category (business / landmark labels on the vector map). */
+export const CATEGORY_COLOURS = {
+  places: { dot: '#2e7d32', text: '#1b5e20' }, // landmarks, parks, monuments
+  restaurants: { dot: '#e8710a', text: '#a14b00' },
+  hotels: { dot: '#c2185b', text: '#8a1243' },
+  hospitals: { dot: '#d32f2f', text: '#9a1d1d' },
+  fuel: { dot: '#455a64', text: '#263238' },
+  shopping: { dot: '#1e88e5', text: '#0d5aa7' },
+  grocery: { dot: '#43a047', text: '#2a6b2d' },
+  atm: { dot: '#00897b', text: '#00594f' },
+  banks: { dot: '#00897b', text: '#00594f' },
+  schools: { dot: '#8d6e63', text: '#5d4037' },
+  colleges: { dot: '#8d6e63', text: '#5d4037' },
+  government: { dot: '#5e35b1', text: '#3e2385' },
+  transport: { dot: '#3949ab', text: '#26307a' },
+  other: { dot: '#757575', text: '#4a4a4a' },
+};
+
+/** Categories that can be switched on/off as map labels (order = label priority). */
+export const LABEL_FILTER_CATEGORIES = ['places', 'transport', 'hospitals', 'hotels', 'restaurants', 'shopping', 'grocery', 'fuel', 'banks', 'atm', 'schools', 'colleges', 'government', 'other'];

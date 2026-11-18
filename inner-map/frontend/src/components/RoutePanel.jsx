@@ -177,7 +177,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
   // A point chosen by clicking the map.
   useEffect(() => {
     if (!picked) return;
-    const v = { label: `${formatCoord(picked.lat, 5)}, ${formatCoord(picked.lng, 5)}`, lat: picked.lat, lng: picked.lng, kind: 'map' };
+    const v = { label: picked.label || `${formatCoord(picked.lat, 5)}, ${formatCoord(picked.lng, 5)}`, lat: picked.lat, lng: picked.lng, kind: 'map' };
     if (picked.field === 'start') setStart(v);
     else setEnd(v);
     // eslint-disable-next-line react-hooks/exhaustive-deps

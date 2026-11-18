@@ -7,12 +7,15 @@ import { PROVIDERS, DEFAULT_PROVIDER_ID, getProvider } from '../maps/providers';
 import { useAuth } from './AuthContext';
 import { subscribe } from '../offline/connectivity';
 import { fetchPreferences, savePreferences } from '../services/preferenceService';
+import { DEFAULT_POI_FILTER } from '../typography/mapLabels';
+import { LABEL_FILTER_CATEGORIES } from '../search/categories';
 
 const ProviderContext = createContext(null);
 const PROVIDER_KEY = 'innermap.provider';
 const COVERAGE_KEY = 'innermap.vectorCoverage';
 const VIEW_KEY = 'innermap.mapView';
 export const MAP_VIEWS = ['default', 'satellite', 'terrain', 'transit'];
+const POI_FILTER_KEY = 'innermap.poiFilter';
 
 function readLocal(key) {
   try {
@@ -48,6 +51,21 @@ export function ProviderProvider({ children }) {
     const next = MAP_VIEWS.includes(v) ? v : 'default';
     setMapViewState(next);
     writeLocal(VIEW_KEY, next);
+  }, []);
+
+  // Which business / landmark categories are labelled on the vector map (this device).
+  const [poiFilter, setPoiFilterState] = useState(() => {
+    try {
+      const v = JSON.parse(readLocal(POI_FILTER_KEY));
+      return Array.isArray(v) ? v.filter((c) => LABEL_FILTER_CATEGORIES.includes(c)) : [...DEFAULT_POI_FILTER];
+    } catch {
+      return [...DEFAULT_POI_FILTER];
+    }
+  });
+  const setPoiFilter = useCallback((list) => {
+    const next = LABEL_FILTER_CATEGORIES.filter((c) => list.includes(c));
+    setPoiFilterState(next);
+    writeLocal(POI_FILTER_KEY, JSON.stringify(next));
   }, []);
 
   const provider = getProvider(providerId);
@@ -102,7 +120,7 @@ export function ProviderProvider({ children }) {
   );
 
   return (
-    <ProviderContext.Provider value={{ provider, providers: PROVIDERS, setProviderId, coverage, mapView, setMapView }}>
+    <ProviderContext.Provider value={{ provider, providers: PROVIDERS, setProviderId, coverage, mapView, setMapView, poiFilter, setPoiFilter }}>
       {children}
     </ProviderContext.Provider>
   );

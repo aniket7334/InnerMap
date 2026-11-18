@@ -3466,3 +3466,94 @@ html.no-scroll body {
 .pack-line .progress {
   flex-basis: 100%;
 }
+
+/* ---------- business / landmark labels: filter + tapped place card ---------- */
+.label-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.label-chip input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.label-chip:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.label-chip.on {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface-2);
+}
+.label-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  opacity: 0.35;
+}
+.label-chip.on .label-chip-dot {
+  opacity: 1;
+}
+.label-filter-actions {
+  display: flex;
+  gap: 10px;
+  margin: 4px 0 2px;
+}
+.place-card {
+  position: absolute;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  z-index: 940;
+  width: min(380px, calc(100% - 24px));
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: var(--r);
+  box-shadow: 0 4px 16px rgba(16, 24, 32, 0.2);
+}
+.place-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.place-card-dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+  flex: none;
+}
+.place-card-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.place-card-title strong {
+  overflow-wrap: anywhere;
+}
+.place-card p {
+  margin: 6px 0 8px;
+}
+.place-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}

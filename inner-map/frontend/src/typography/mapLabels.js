@@ -9,7 +9,16 @@
 //
 // We start from the stock label rules (same colours, order and collision rules) and wrap
 // every font attribute so it is scaled per category and uses the chosen family.
-import { CenteredTextSymbolizer, labelRules as stockLabelRules, paintRules as stockPaintRules } from 'protomaps-leaflet';
+import {
+  CenteredTextSymbolizer,
+  CircleSymbolizer,
+  GroupSymbolizer,
+  LineSymbolizer,
+  OffsetTextSymbolizer,
+  labelRules as stockLabelRules,
+  paintRules as stockPaintRules,
+} from 'protomaps-leaflet';
+import { CATEGORY_COLOURS, LABEL_FILTER_CATEGORIES, categoryOf } from '../search/categories';
 import { namedFlavor } from '@protomaps/basemaps';
 import { labelFont } from './typographyConfig';
 
@@ -72,27 +81,55 @@ function wrapFonts(symbolizer, dataLayer, opts, seen = new Set()) {
   return n;
 }
 
-/** Landmark (point of interest) labels: not in the stock rules, so added here. */
-function landmarkRule(opts) {
+// ---- businesses and landmarks (Stage 5) --------------------------------------------------
+// Points of interest are not labelled by the stock style. One rule per category gives each a
+// coloured dot and text colour, in priority order (earlier rules win label collisions).
+// Only features that have a name in the data are labelled; nothing is invented.
+const poiCategory = (f) => categoryOf('pois', f.props.kind);
+const hasName = (f) => Boolean(f.props.name || f.props['name:en']);
+// The data marks how prominent each feature is (min_zoom). Show it from that zoom.
+const visibleAt = (z, f) => {
+  const mz = f.props.min_zoom ?? f.props['pmap:min_zoom'];
+  return mz === undefined ? z >= 16 : mz <= z;
+};
+
+function poiRule(category, opts) {
+  const colour = CATEGORY_COLOURS[category] || CATEGORY_COLOURS.other;
+  const base = category === 'places' ? '600 11.5px sans-serif' : '400 11px sans-serif';
   return {
     dataLayer: 'pois',
-    minzoom: 14,
-    symbolizer: new CenteredTextSymbolizer({
-      labelProps: ['name:en', 'name'],
-      fill: '#4b5563',
-      stroke: '#ffffff',
-      width: 2,
-      lineHeight: 1.15,
-      font: (_z, f) => restyleFont('400 11px sans-serif', opts.scale.landmarks, opts.family, opts.bold),
-    }),
-    // Busy city tiles carry many POIs; show only the ones the data marks as visible at this zoom.
-    filter: (z, f) => {
-      const p = f.props || {};
-      if (!p.name && !p['name:en']) return false;
-      const minZoom = p.min_zoom ?? p['pmap:min_zoom'];
-      return minZoom === undefined ? z >= 16 : minZoom <= z;
-    },
+    minzoom: 13,
+    filter: (z, f) => hasName(f) && poiCategory(f) === category && visibleAt(z, f),
     sort: (a, b) => (a.min_zoom ?? 20) - (b.min_zoom ?? 20),
+    symbolizer: new GroupSymbolizer([
+      new CircleSymbolizer({ radius: 3.5, fill: colour.dot, stroke: '#ffffff', width: 1.5 }),
+      new OffsetTextSymbolizer({
+        labelProps: ['name:en', 'name'],
+        fill: colour.text,
+        stroke: '#ffffff',
+        width: 2.2,
+        offsetX: 6,
+        offsetY: 4,
+        lineHeight: 1.1,
+        font: () => restyleFont(base, opts.scale.landmarks, opts.family, opts.bold),
+      }),
+    ]),
+  };
+}
+
+/** House numbers (OSM addr:housenumber on building/address points), from zoom 17. */
+function houseNumberRule(opts) {
+  return {
+    dataLayer: 'buildings',
+    minzoom: 17,
+    filter: (z, f) => Boolean(f.props.addr_housenumber),
+    symbolizer: new CenteredTextSymbolizer({
+      labelProps: ['addr_housenumber'],
+      fill: '#7a6f63',
+      stroke: '#f3eee8',
+      width: 1.5,
+      font: () => restyleFont('400 9.5px sans-serif', opts.scale.landmarks, opts.family, false),
+    }),
   };
 }
 
@@ -107,21 +144,37 @@ export function labelStyleOptions(t) {
   };
 }
 
+/** Default label filter: every business / landmark category on. */
+export const DEFAULT_POI_FILTER = Object.freeze([...LABEL_FILTER_CATEGORIES]);
+
 /** Label rules for the vector basemap with the user's map typography applied. */
-export function buildLabelRules(t, lang = 'en') {
+export function buildLabelRules(t, lang = 'en', { poiFilter = DEFAULT_POI_FILTER } = {}) {
   const opts = labelStyleOptions(t);
   const rules = stockLabelRules(namedFlavor(FLAVOR), lang);
   for (const rule of rules) wrapFonts(rule.symbolizer, rule.dataLayer, opts);
-  if (opts.showLandmarks) rules.push(landmarkRule(opts));
+  if (opts.showLandmarks) {
+    for (const cat of LABEL_FILTER_CATEGORIES) if (poiFilter.includes(cat)) rules.push(poiRule(cat, opts));
+  }
+  rules.push(houseNumberRule(opts));
   return rules;
 }
 
+/** Thin outlines so building footprints stand out from the ground at street zooms. */
+function buildingOutlineRule() {
+  return {
+    dataLayer: 'buildings',
+    minzoom: 15,
+    filter: (z, f) => f.props.kind === 'building' || f.props.kind === 'building_part',
+    symbolizer: new LineSymbolizer({ color: '#c9bfb2', width: (z) => (z >= 17 ? 0.9 : 0.5) }),
+  };
+}
+
 /** Everything leafletLayer() needs instead of `flavor` when custom label rules are used. */
-export function vectorStyle(t) {
+export function vectorStyle(t, labelOptions) {
   const flavor = namedFlavor(FLAVOR);
   return {
-    paintRules: stockPaintRules(flavor),
-    labelRules: t ? buildLabelRules(t) : stockLabelRules(flavor, 'en'),
+    paintRules: [...stockPaintRules(flavor), buildingOutlineRule()],
+    labelRules: t ? buildLabelRules(t, 'en', labelOptions) : stockLabelRules(flavor, 'en'),
     backgroundColor: flavor.background,
   };
 }

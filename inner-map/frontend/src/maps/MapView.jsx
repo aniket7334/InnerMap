@@ -73,8 +73,8 @@ function featureLayer(collection) {
   });
 }
 
-function createBaseLayer(provider, typography) {
-  return provider.kind === 'vector' ? createVectorTileLayer(provider, typography) : createOfflineTileLayer(provider);
+function createBaseLayer(provider, typography, labelOptions) {
+  return provider.kind === 'vector' ? createVectorTileLayer(provider, typography, labelOptions) : createOfflineTileLayer(provider);
 }
 
 function describeBounds(b) {
@@ -219,7 +219,9 @@ export default function MapView({
   const flyOnFix = useRef(false);
   const onClickRef = useRef(onClick);
   const { position, tracking, startTracking, fixStatus } = useLocation();
-  const { provider, coverage } = useMapProvider();
+  const { provider, coverage, poiFilter } = useMapProvider();
+  const poiFilterRef = useRef(poiFilter);
+  poiFilterRef.current = poiFilter;
   const { status, lastChecked } = useConnectivity();
   const { user } = useAuth();
   const { settings: typography, mapLabelKey } = useTypography();
@@ -235,6 +237,7 @@ export default function MapView({
   const [demStatus, setDemStatus] = useState(null); // terrain: { loaded, missing }
   const [elevation, setElevation] = useState(null);
   const baseLayerRef = useRef(null);
+  const vectorLayerRef = useRef(null); // protomaps layer used to look up features at a click
 
   onClickRef.current = onClick;
 
@@ -255,7 +258,7 @@ export default function MapView({
   // (raster tiles have their labels baked in and ignore it).
   // Satellite view replaces the base layer; the other views add overlays on top of it.
   const satellite = view === 'satellite';
-  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
+  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${poiFilter.join(',')}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
     .filter((r) => r.status !== 'downloading')
     .map((r) => `${r.id}:${r.status}`)
     .join(',')}`;
@@ -300,7 +303,26 @@ export default function MapView({
     map.on('move zoom', updateView);
     map.on('mousemove', (e) => setCursor({ lat: e.latlng.lat, lng: e.latlng.lng }));
     map.on('mouseout', () => setCursor(null));
-    map.on('click', (e) => onClickRef.current?.(e.latlng, map));
+    // Named feature (business, landmark, place, street) under a click, from the vector data.
+    const queryAt = (latlng) => {
+      const layer = vectorLayerRef.current;
+      if (!layer?.queryTileFeaturesDebug) return null;
+      let found;
+      try {
+        found = layer.queryTileFeaturesDebug(latlng.lng, latlng.lat, 14);
+      } catch {
+        return null;
+      }
+      const hits = [];
+      for (const list of found.values()) for (const h of list) hits.push(h);
+      const named = (h) => h.feature?.props && (h.feature.props.name || h.feature.props['name:en']);
+      const order = ['pois', 'places', 'water', 'roads'];
+      const best = hits.filter(named).sort((a, b) => order.indexOf(a.layerName) - order.indexOf(b.layerName))[0];
+      if (!best || order.indexOf(best.layerName) === -1) return null;
+      const p = best.feature.props;
+      return { name: p['name:en'] || p.name, kind: p.kind, layer: best.layerName, kindDetail: p.kind_detail || null };
+    };
+    map.on('click', (e) => onClickRef.current?.(e.latlng, map, queryAt));
     updateView();
 
     mapRef.current = map;
@@ -329,21 +351,25 @@ export default function MapView({
       // Imagery + place/road labels from the vector data ("hybrid").
       const imagery = createOfflineTileLayer(SATELLITE_SOURCE).addTo(map);
       imagery.bringToBack();
-      const labels = createLabelsOverlay(VECTOR, typographyRef.current).addTo(map);
+      const labels = createLabelsOverlay(VECTOR, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
       labels.setZIndex(5);
       baseLayerRef.current = imagery;
+      vectorLayerRef.current = labels;
       return () => {
         map.removeLayer(imagery);
         map.removeLayer(labels);
         baseLayerRef.current = null;
+        vectorLayerRef.current = null;
       };
     }
-    const layer = createBaseLayer(provider, typographyRef.current).addTo(map);
+    const layer = createBaseLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
     layer.bringToBack();
     baseLayerRef.current = layer;
+    vectorLayerRef.current = provider.kind === 'vector' ? layer : null;
     return () => {
       map.removeLayer(layer);
       baseLayerRef.current = null;
+      vectorLayerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);

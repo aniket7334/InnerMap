@@ -30,9 +30,9 @@ function overlay(provider, paintRules, labelRules, extra = {}) {
 }
 
 /** Place, road and water labels (no fills) to lay over satellite imagery. */
-export function createLabelsOverlay(provider, typography) {
+export function createLabelsOverlay(provider, typography, labelOptions) {
   // Light text with a dark halo reads well on imagery.
-  const layer = overlay(provider, [], buildLabelRules(typography));
+  const layer = overlay(provider, [], buildLabelRules(typography, 'en', labelOptions));
   layer.options.className = 'labels-on-imagery';
   return layer;
 }

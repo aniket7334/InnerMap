@@ -11,6 +11,8 @@ import { fetchPreferences, savePreferences } from '../services/preferenceService
 const ProviderContext = createContext(null);
 const PROVIDER_KEY = 'innermap.provider';
 const COVERAGE_KEY = 'innermap.vectorCoverage';
+const VIEW_KEY = 'innermap.mapView';
+export const MAP_VIEWS = ['default', 'satellite', 'terrain', 'transit'];
 
 function readLocal(key) {
   try {
@@ -39,6 +41,14 @@ export function ProviderProvider({ children }) {
       return null;
     }
   });
+
+  // Map view (Default / Satellite / Terrain / Transit), kept on this device.
+  const [mapView, setMapViewState] = useState(() => (MAP_VIEWS.includes(readLocal(VIEW_KEY)) ? readLocal(VIEW_KEY) : 'default'));
+  const setMapView = useCallback((v) => {
+    const next = MAP_VIEWS.includes(v) ? v : 'default';
+    setMapViewState(next);
+    writeLocal(VIEW_KEY, next);
+  }, []);
 
   const provider = getProvider(providerId);
 
@@ -92,7 +102,7 @@ export function ProviderProvider({ children }) {
   );
 
   return (
-    <ProviderContext.Provider value={{ provider, providers: PROVIDERS, setProviderId, coverage }}>
+    <ProviderContext.Provider value={{ provider, providers: PROVIDERS, setProviderId, coverage, mapView, setMapView }}>
       {children}
     </ProviderContext.Provider>
   );

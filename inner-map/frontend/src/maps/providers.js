@@ -123,6 +123,57 @@ if (customUrl && !isBulkForbidden(customUrl)) {
 
 export const PROVIDERS = Object.freeze(list);
 
+// ---- map view sources (Stage 3) --------------------------------------------------------
+// Not base-map choices of their own: the map-view selector (Default / Satellite / Terrain /
+// Transit) puts them on top of, or in place of, the chosen base map.
+
+// Satellite imagery. Default: EOX Sentinel-2 cloudless (Copernicus Sentinel-2, ~10 m per pixel,
+// one cloud-free mosaic per year). Licence: CC BY-NC-SA 4.0 - free for NON-COMMERCIAL use,
+// copies (offline storage) allowed with attribution; commercial use needs an EOX licence.
+// Set VITE_SATELLITE_URL (+ _LABEL, _ATTRIBUTION, _MAX_ZOOM, _OFFLINE_ALLOWED) to use another
+// properly licensed imagery service instead. Google imagery is never allowed (see BULK_FORBIDDEN_HOSTS).
+const SAT_YEAR = env.VITE_SATELLITE_YEAR || '2025';
+const satUrl = (env.VITE_SATELLITE_URL || '').trim();
+const satCustom = satUrl && !isBulkForbidden(satUrl);
+export const SATELLITE_SOURCE = define({
+  id: 'satellite',
+  label: satCustom ? env.VITE_SATELLITE_LABEL || 'Satellite imagery' : `Sentinel-2 cloudless ${SAT_YEAR}`,
+  description: satCustom
+    ? env.VITE_SATELLITE_DESCRIPTION || 'Satellite imagery configured in frontend/.env.'
+    : `Cloud-free satellite mosaic of ${SAT_YEAR} (Copernicus Sentinel-2, processed by EOX). About 10 m per pixel: cities, coastlines, forests and fields are visible; single buildings are not.`,
+  kind: 'raster',
+  url: satCustom ? satUrl : `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-${SAT_YEAR}_3857/default/g/{z}/{y}/{x}.jpg`,
+  servedByApp: false,
+  maxZoom: 19,
+  maxDataZoom: Number(env.VITE_SATELLITE_MAX_ZOOM || (satCustom ? 19 : 15)),
+  resolution: satCustom ? env.VITE_SATELLITE_RESOLUTION || null : '≈10 m per pixel',
+  imageryDate: satCustom ? env.VITE_SATELLITE_DATE || null : `${SAT_YEAR} (annual mosaic)`,
+  offlineAllowed: satCustom ? env.VITE_SATELLITE_OFFLINE_ALLOWED === 'true' : true,
+  licenceNote: satCustom ? env.VITE_SATELLITE_LICENCE || '' : 'CC BY-NC-SA 4.0: non-commercial use only',
+  attribution: satCustom
+    ? env.VITE_SATELLITE_ATTRIBUTION || 'Satellite imagery'
+    : `<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data ${SAT_YEAR})`,
+  averageTileBytes: 14 * 1024,
+});
+
+// Elevation for the Terrain view: AWS / Mapzen Terrain Tiles ("terrarium" PNG encoding,
+// elevation = R*256 + G + B/256 - 32768 m). Open data (SRTM, GMTED, ETOPO1, ...), may be stored
+// offline; attribution required. Drawn as hill shading on the device.
+export const TERRAIN_SOURCE = define({
+  id: 'terrain-dem',
+  label: 'Terrain Tiles (elevation)',
+  description: 'Elevation model from AWS Terrain Tiles (Mapzen / Tilezen): SRTM, GMTED2010, ETOPO1 and national datasets.',
+  kind: 'raster',
+  url: env.VITE_TERRAIN_URL || 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png',
+  servedByApp: false,
+  maxZoom: 19,
+  maxDataZoom: 15,
+  offlineAllowed: true,
+  attribution:
+    'Elevation: <a href="https://github.com/tilezen/joerd/blob/master/docs/attribution.md">Mapzen Terrain Tiles</a> (SRTM, GMTED2010 courtesy of the U.S. Geological Survey, ETOPO1)',
+  averageTileBytes: 40 * 1024,
+});
+
 export const DEFAULT_PROVIDER_ID = PROVIDERS.some((p) => p.id === env.VITE_DEFAULT_PROVIDER)
   ? env.VITE_DEFAULT_PROVIDER
   : 'local-vector';

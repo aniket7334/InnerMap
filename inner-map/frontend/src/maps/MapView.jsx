@@ -13,6 +13,11 @@ import { useAuth } from '../hooks/AuthContext';
 import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { formatCoord, describeGeometry, WORLD_VIEW } from './geo';
+import { SATELLITE_SOURCE, TERRAIN_SOURCE, getProvider } from './providers';
+import { HillshadeLayer, elevationAt } from './HillshadeLayer';
+import { createLabelsOverlay, createTransitOverlay, TRANSIT_LEGEND } from './viewOverlays';
+
+const VECTOR = getProvider('local-vector');
 
 const DEFAULT_LINE = '#2563eb';
 const DEFAULT_POINT = '#d97706';
@@ -129,6 +134,62 @@ function placePopup(place) {
   return el;
 }
 
+/** What the active map view shows, where its data comes from, and its limits. */
+function ViewInfo({ view }) {
+  const [open, setOpen] = useState(false);
+  let title;
+  let detail;
+  if (view === 'satellite') {
+    title = `Satellite · ${SATELLITE_SOURCE.label}`;
+    detail = [
+      SATELLITE_SOURCE.description,
+      SATELLITE_SOURCE.imageryDate && `Imagery: ${SATELLITE_SOURCE.imageryDate}`,
+      SATELLITE_SOURCE.resolution && `Resolution: ${SATELLITE_SOURCE.resolution}`,
+      SATELLITE_SOURCE.licenceNote && `Licence: ${SATELLITE_SOURCE.licenceNote}`,
+      'Labels: OpenStreetMap (Inner Map vector data).',
+    ].filter(Boolean);
+  } else if (view === 'terrain') {
+    title = 'Terrain · hill shading';
+    detail = [TERRAIN_SOURCE.description, 'Relief is exaggerated at low zoom so hills stay visible. The elevation under the cursor is shown at the bottom.'];
+  } else {
+    title = 'Transit · OpenStreetMap';
+    detail = [
+      'Railway, metro, monorail and ferry lines with stations and stops from OpenStreetMap.',
+      'Bus route lines are not in the map data, so only bus stops are shown. No timetable (GTFS) data is configured.',
+    ];
+  }
+  return (
+    <div className={`map-view-info ${open ? 'open' : ''}`}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        {title} <span aria-hidden="true">{open ? '▴' : 'ⓘ'}</span>
+      </button>
+      {open && (
+        <div className="map-view-detail">
+          {detail.map((d) => (
+            <p key={d}>{d}</p>
+          ))}
+          {view === 'transit' && (
+            <ul className="transit-legend">
+              {TRANSIT_LEGEND.map((l) => (
+                <li key={l.label}>
+                  <span className={`legend-line ${l.dashed ? 'dashed' : ''}`} style={{ borderColor: l.colour }} />
+                  {l.label}
+                </li>
+              ))}
+              <li>
+                <span className="legend-dot station" /> Station
+              </li>
+              <li>
+                <span className="legend-dot bus" /> Bus stop / station
+              </li>
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function MapView({
   initialCenter,
   initialZoom,
@@ -149,6 +210,7 @@ export default function MapView({
   showCoordinates = true,
   showLocateButton = true,
   interactive = true,
+  view = 'default', // 'default' | 'satellite' | 'terrain' | 'transit' (map view selector)
   children,
 }) {
   const containerRef = useRef(null);
@@ -170,6 +232,9 @@ export default function MapView({
   const [zoom, setZoom] = useState(initialZoom ?? WORLD_VIEW.zoom);
   const [viewBounds, setViewBounds] = useState(null);
   const [noticeDismissed, setNoticeDismissed] = useState(null);
+  const [demStatus, setDemStatus] = useState(null); // terrain: { loaded, missing }
+  const [elevation, setElevation] = useState(null);
+  const baseLayerRef = useRef(null);
 
   onClickRef.current = onClick;
 
@@ -188,7 +253,9 @@ export default function MapView({
   // were empty before are fetched again (protomaps-leaflet caches tile data in memory).
   // Vector labels are drawn into the tiles, so label typography changes also rebuild the layer
   // (raster tiles have their labels baked in and ignore it).
-  const refreshKey = `${provider.id}|${reachable}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
+  // Satellite view replaces the base layer; the other views add overlays on top of it.
+  const satellite = view === 'satellite';
+  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
     .filter((r) => r.status !== 'downloading')
     .map((r) => `${r.id}:${r.status}`)
     .join(',')}`;
@@ -258,13 +325,84 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return undefined;
+    if (satellite) {
+      // Imagery + place/road labels from the vector data ("hybrid").
+      const imagery = createOfflineTileLayer(SATELLITE_SOURCE).addTo(map);
+      imagery.bringToBack();
+      const labels = createLabelsOverlay(VECTOR, typographyRef.current).addTo(map);
+      labels.setZIndex(5);
+      baseLayerRef.current = imagery;
+      return () => {
+        map.removeLayer(imagery);
+        map.removeLayer(labels);
+        baseLayerRef.current = null;
+      };
+    }
     const layer = createBaseLayer(provider, typographyRef.current).addTo(map);
     layer.bringToBack();
+    baseLayerRef.current = layer;
     return () => {
       map.removeLayer(layer);
+      baseLayerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
+
+  // Terrain view: hill shading from elevation data over the base map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || view !== 'terrain') return undefined;
+    const layer = new HillshadeLayer({ source: TERRAIN_SOURCE, attribution: TERRAIN_SOURCE.attribution });
+    layer.on('demstatus', (e) => setDemStatus({ loaded: e.loaded, missing: e.missing }));
+    layer.addTo(map).setZIndex(3);
+    return () => {
+      map.removeLayer(layer);
+      setDemStatus(null);
+      setElevation(null);
+    };
+  }, [view, reachable]);
+
+  // Terrain view: elevation under the cursor (or map centre).
+  const elevPoint = cursor || center;
+  useEffect(() => {
+    if (view !== 'terrain' || !elevPoint) return undefined;
+    let alive = true;
+    const t = setTimeout(() => {
+      elevationAt(TERRAIN_SOURCE, elevPoint.lat, elevPoint.lng, Math.min(zoom, 14))
+        .then((v) => alive && setElevation(v))
+        .catch(() => alive && setElevation(null));
+    }, 120);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [view, elevPoint?.lat, elevPoint?.lng, zoom]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Transit view: rail / metro lines and stops over a faded base map.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || view !== 'transit') return undefined;
+    const layer = createTransitOverlay(VECTOR, typographyRef.current).addTo(map);
+    layer.setZIndex(4);
+    return () => map.removeLayer(layer);
+  }, [view, reachable, mapLabelKey]);
+  useEffect(() => {
+    baseLayerRef.current?.setOpacity?.(view === 'transit' ? 0.55 : 1);
+  }, [view, refreshKey]);
+
+  // Messages about the active map view (coverage, offline limits).
+  const viewNotice = useMemo(() => {
+    if (view === 'satellite' && status !== 'online') {
+      return { id: 'sat-offline', text: 'Satellite imagery needs internet unless it was downloaded for this area (otherwise shown as “Not downloaded”).' };
+    }
+    if (view === 'terrain' && demStatus && demStatus.loaded === 0 && demStatus.missing > 0) {
+      return {
+        id: 'dem-missing',
+        text: navigator.onLine ? 'No elevation data could be loaded for this area.' : 'Terrain needs internet here: no elevation data is stored on this device for this area.',
+      };
+    }
+    return null;
+  }, [view, status, demStatus]);
 
   // Tell the user when the visible area has no map data available.
   const notice = useMemo(() => {
@@ -536,8 +674,18 @@ export default function MapView({
             {formatCoord((cursor || center).lng, 5)}
           </span>
           <span className="map-coords-zoom">z{zoom}</span>
+          {view === 'terrain' && <span className="map-coords-elev">{elevation == null ? 'Elevation: –' : `Elevation: ${Math.round(elevation)} m`}</span>}
         </div>
       )}
+      {!notice && viewNotice && noticeDismissed !== viewNotice.id && (
+        <div className="map-notice" role="status">
+          <span>{viewNotice.text}</span>
+          <button type="button" className="map-notice-close" onClick={() => setNoticeDismissed(viewNotice.id)} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      )}
+      {view !== 'default' && <ViewInfo view={view} />}
       {notice && noticeDismissed !== notice.id && (
         <div className="map-notice" role="status">
           <span>{notice.text}</span>

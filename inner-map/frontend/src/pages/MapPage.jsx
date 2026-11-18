@@ -16,9 +16,17 @@ import { useMapFullscreen } from '../hooks/useMapFullscreen';
 import MapView from '../maps/MapView';
 import RoutePanel from '../components/RoutePanel';
 import Icon from '../components/Icon';
+import { SATELLITE_SOURCE } from '../maps/providers';
 import GpsStatus, { GpsStartupPrompt } from '../components/GpsStatus';
 
-function LayerControl({ open, setOpen, provider, providers, setProviderId, overlays, setOverlays, layerCount }) {
+const VIEW_OPTIONS = [
+  { id: 'default', label: 'Default', note: 'Streets, places, landmarks' },
+  { id: 'satellite', label: 'Satellite', note: `${SATELLITE_SOURCE.label}, ${SATELLITE_SOURCE.resolution || 'imagery'}` },
+  { id: 'terrain', label: 'Terrain', note: 'Hill shading + elevation' },
+  { id: 'transit', label: 'Transit', note: 'Rail, metro, stations, stops' },
+];
+
+function LayerControl({ open, setOpen, provider, providers, setProviderId, overlays, setOverlays, layerCount, mapView, setMapView }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -41,7 +49,20 @@ function LayerControl({ open, setOpen, provider, providers, setProviderId, overl
       {open && (
         <div className="ctrl-popover" role="dialog" aria-label="Map layers">
           <fieldset>
-            <legend>Base map</legend>
+            <legend>Map view</legend>
+            <div className="view-picker" role="radiogroup" aria-label="Map view">
+              {VIEW_OPTIONS.map((v) => (
+                <label key={v.id} className={`view-option view-${v.id} ${mapView === v.id ? 'active' : ''}`}>
+                  <input type="radio" name="map-view" value={v.id} checked={mapView === v.id} onChange={() => setMapView(v.id)} />
+                  <span className="view-swatch" aria-hidden="true" />
+                  <span className="view-name">{v.label}</span>
+                  <small>{v.note}</small>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset disabled={mapView === 'satellite'}>
+            <legend>Base map{mapView === 'satellite' ? ' (not used in Satellite view)' : ''}</legend>
             {providers.map((p) => (
               <label key={p.id} className="radio-row">
                 <input type="radio" name="base" checked={provider.id === p.id} onChange={() => setProviderId(p.id)} />
@@ -92,7 +113,7 @@ export default function MapPage() {
   } = useLocation();
   const { regions } = useRegions(user.id);
   const { locations, add } = useSavedLocations(user.id);
-  const { provider, providers, setProviderId, coverage } = useMapProvider();
+  const { provider, providers, setProviderId, coverage, mapView, setMapView } = useMapProvider();
   const { collections } = useFeatureLayers(user.id);
   const routerLocation = useRouterLocation();
 
@@ -230,6 +251,7 @@ export default function MapPage() {
     >
       <MapView
         className="map-full"
+        view={mapView}
         follow={follow && tracking}
         places={overlays.places ? locations : []}
         regions={overlays.regions ? regions : []}
@@ -347,6 +369,8 @@ export default function MapPage() {
             overlays={overlays}
             setOverlays={setOverlays}
             layerCount={collections.length}
+            mapView={mapView}
+            setMapView={setMapView}
           />
           <button
             type="button"

@@ -19,6 +19,8 @@ import { createLabelsOverlay, createTransitOverlay, TRANSIT_LEGEND } from './vie
 import { formatLength, measureStats } from '../components/MeasurePanel';
 
 const VECTOR = getProvider('local-vector');
+const WORLD_FILL = getProvider('osm-standard');
+const FILL_DETAIL_ZOOM = 9;
 
 const DEFAULT_LINE = '#2563eb';
 const DEFAULT_POINT = '#d97706';
@@ -240,6 +242,7 @@ export default function MapView({
   const [elevation, setElevation] = useState(null);
   const baseLayerRef = useRef(null);
   const vectorLayerRef = useRef(null); // protomaps layer used to look up features at a click
+  const fillLayerRef = useRef(null); // online OpenStreetMap map outside the server's data area
 
   onClickRef.current = onClick;
 
@@ -260,7 +263,12 @@ export default function MapView({
   // (raster tiles have their labels baked in and ignore it).
   // Satellite view replaces the base layer; the other views add overlays on top of it.
   const satellite = view === 'satellite';
-  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${poiFilter.join(',')}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
+  // The Inner Map server's street data covers only the area in its PMTiles file (e.g. Mumbai).
+  // With internet, the rest of the world is filled with the standard OpenStreetMap map
+  // (online viewing only - never downloaded or stored). Offline nothing changes.
+  const worldFill = provider.kind === 'vector' && status !== 'offline' && !!coverage?.bounds;
+  const coverageKey = coverage?.bounds ? Object.values(coverage.bounds).join(',') : '';
+  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${worldFill}|${coverageKey}|${poiFilter.join(',')}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
     .filter((r) => r.status !== 'downloading')
     .map((r) => `${r.id}:${r.status}`)
     .join(',')}`;
@@ -365,11 +373,29 @@ export default function MapView({
         vectorLayerRef.current = null;
       };
     }
-    const layer = createBaseLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
-    layer.bringToBack();
+    let fill = null;
+    let layer;
+    if (worldFill) {
+      fill = createOfflineTileLayer(WORLD_FILL).addTo(map);
+      fill.setZIndex(0);
+      const b = coverage.bounds;
+      // Our data on top, only where the server has it, and from the zoom where its tiles
+      // are smaller than the data area (so no patchwork at country level).
+      layer = createVectorTileLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }, {
+        bounds: L.latLngBounds([b.south, b.west], [b.north, b.east]),
+        minZoom: FILL_DETAIL_ZOOM,
+      }).addTo(map);
+      layer.setZIndex(1);
+    } else {
+      layer = createBaseLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
+      layer.bringToBack();
+    }
     baseLayerRef.current = layer;
+    fillLayerRef.current = fill;
     vectorLayerRef.current = provider.kind === 'vector' ? layer : null;
     return () => {
+      if (fill) map.removeLayer(fill);
+      fillLayerRef.current = null;
       map.removeLayer(layer);
       baseLayerRef.current = null;
       vectorLayerRef.current = null;
@@ -450,6 +476,7 @@ export default function MapView({
   }, [view, reachable, mapLabelKey]);
   useEffect(() => {
     baseLayerRef.current?.setOpacity?.(view === 'transit' ? 0.55 : 1);
+    fillLayerRef.current?.setOpacity?.(view === 'transit' ? 0.55 : 1);
   }, [view, refreshKey]);
 
   // Messages about the active map view (coverage, offline limits).
@@ -469,7 +496,7 @@ export default function MapView({
   // Tell the user when the visible area has no map data available.
   const notice = useMemo(() => {
     if (!viewBounds) return null;
-    if (!reachable) {
+    if (!reachable && !worldFill) {
       if (!provider.offlineAllowed) {
         return {
           id: 'provider-offline',
@@ -490,6 +517,13 @@ export default function MapView({
         return { id: 'no-file', text: 'The server has no vector map file yet. See backend/data/README.md.' };
       }
       if (coverage.bounds && zoom >= 6 && !boundsIntersect(coverage.bounds, viewBounds)) {
+        if (worldFill) {
+          return {
+            id: 'online-fill',
+            text: `Online map (OpenStreetMap): needs internet here and can't be saved for offline use. Offline map data covers ${describeBounds(coverage.bounds)}.`,
+            action: { label: 'Show offline area', bounds: coverage.bounds },
+          };
+        }
         return {
           id: 'outside-coverage',
           text: `No map data here. The Inner Map server has data for ${describeBounds(coverage.bounds)}.`,
@@ -498,7 +532,7 @@ export default function MapView({
       }
     }
     return null;
-  }, [viewBounds, reachable, provider, storedRegions, coverage, zoom]);
+  }, [viewBounds, reachable, provider, storedRegions, coverage, zoom, worldFill]);
 
   const fitBounds = (b) =>
     mapRef.current?.fitBounds(

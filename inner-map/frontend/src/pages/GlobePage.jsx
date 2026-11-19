@@ -430,6 +430,25 @@ export default function GlobePage() {
     };
   }, [ready, effectiveBase, globeData.imagery, status]);
 
+  // ------------------------------------------------------------ street map for the whole world
+  // "Map" style: the server's street data covers only its own area (e.g. Mumbai), so with
+  // internet the standard OpenStreetMap map is shown everywhere under it (online only).
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || mapStyle !== 'map' || !online) return undefined;
+    const layer = new ImageryLayer(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }));
+    const layers = viewer.imageryLayers;
+    layers.add(layer);
+    // keep it under the server's own street data
+    while (layers.indexOf(layer) > 1 && layers.get(layers.indexOf(layer) - 1).imageryProvider instanceof VectorImageryProvider) {
+      layers.raise(layers.get(layers.indexOf(layer) - 1));
+    }
+    viewer.scene.requestRender();
+    return () => {
+      if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
+    };
+  }, [ready, mapStyle, online]);
+
   // ------------------------------------------------------------ roads + names / street map
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -447,6 +466,8 @@ export default function GlobePage() {
   // Countries, states, cities, seas (Natural Earth, served by the app - works offline).
   const [worldNames, setWorldNames] = useState(null);
   const worldLabelsRef = useRef(null);
+  // Hidden in "Clean", and in "Map" while the online OpenStreetMap map (which has its own names) shows.
+  const showWorldNames = mapStyle === 'labels' || (mapStyle === 'map' && !online);
   useEffect(() => {
     if (worldNames) return;
     loadWorldLabels()
@@ -465,7 +486,7 @@ export default function GlobePage() {
       detailBounds,
       avoid: '.earth-controls, .earth-style, .earth-status',
     });
-    layer.setVisible(mapStyle !== 'clean');
+    layer.setVisible(showWorldNames);
     worldLabelsRef.current = layer;
     window.__innerMapWorldLabels = layer; // diagnostics
     return () => {
@@ -474,8 +495,8 @@ export default function GlobePage() {
     };
   }, [ready, worldNames, mapLabelKey, detailBounds]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    worldLabelsRef.current?.setVisible(mapStyle !== 'clean');
-  }, [mapStyle]);
+    worldLabelsRef.current?.setVisible(showWorldNames);
+  }, [showWorldNames]);
 
   // ------------------------------------------------------------ overlays
   useEffect(() => {

@@ -52,12 +52,12 @@ function placeItem(p, lng, lat) {
   if (!text) return null;
   const cls = p.class;
   if (cls === 'city' || cls === 'country' || cls === 'state' || cls === 'province' || cls === 'continent') return null; // world names have these
-  if (cls === 'town') return { lng, lat, text, px: 13, weight: 500, color: C.town, dot: true, dotSize: 4, prio: 14 + (p.rank || 10) * 0.05, far: 220 * KM };
-  if (cls === 'village') return { lng, lat, text, px: 12, weight: 400, color: C.village, dot: true, dotSize: 3, prio: 16 + (p.rank || 10) * 0.05, far: 90 * KM };
-  if (cls === 'suburb' || cls === 'quarter' || cls === 'borough') return { lng, lat, text: text.toUpperCase(), px: 11.5, weight: 500, color: C.suburb, prio: 17, far: 70 * KM };
-  if (cls === 'neighbourhood') return { lng, lat, text: text.toUpperCase(), px: 10.5, weight: 400, color: C.suburb, prio: 20, far: 18 * KM };
+  if (cls === 'town') return { lng, lat, text, px: 17, weight: 600, color: C.town, dot: true, dotSize: 7, prio: 14 + (p.rank || 10) * 0.05, far: 220 * KM };
+  if (cls === 'village') return { lng, lat, text, px: 15, weight: 500, color: C.village, dot: true, dotSize: 6, prio: 16 + (p.rank || 10) * 0.05, far: 90 * KM };
+  if (cls === 'suburb' || cls === 'quarter' || cls === 'borough') return { lng, lat, text: text.toUpperCase(), px: 14.5, weight: 600, color: C.suburb, prio: 17, far: 70 * KM };
+  if (cls === 'neighbourhood') return { lng, lat, text: text.toUpperCase(), px: 13.5, weight: 500, color: C.suburb, prio: 20, far: 18 * KM };
   if (cls === 'hamlet' || cls === 'isolated_dwelling' || cls === 'locality' || cls === 'island' || cls === 'islet')
-    return { lng, lat, text, px: 11, weight: 400, color: C.hamlet, dot: cls !== 'island' && cls !== 'islet', dotSize: 3, prio: 21, far: 30 * KM };
+    return { lng, lat, text, px: 14, weight: 500, color: C.hamlet, dot: cls !== 'island' && cls !== 'islet', dotSize: 5, prio: 21, far: 30 * KM };
   return null;
 }
 
@@ -71,12 +71,12 @@ function poiItem(p, lng, lat) {
     lng,
     lat,
     text,
-    px: level <= 1 ? 12 : 11,
-    weight: level <= 1 ? 500 : 400,
+    px: level <= 1 ? 15.5 : 14,
+    weight: level <= 1 ? 600 : 500,
     color: '#ffffff',
     dot: true,
     dotColor: color,
-    dotSize: level <= 1 ? 6 : 5,
+    dotSize: level <= 1 ? 9 : 7.5,
     prio: 24 + level * 1.5 + Math.min(rank, 60) * 0.05,
     far: level <= 1 ? 16 * KM : level <= 3 ? 7 * KM : 4 * KM,
   };
@@ -125,7 +125,7 @@ function decodeTile(buffer, x, y, z) {
       const text = nameOf(p);
       if (!text) return;
       const c = g.type === 'Point' ? g.coordinates : lineMiddle(g.coordinates);
-      if (c) out.push({ lng: c[0], lat: c[1], text, px: 11.5, italic: true, color: C.water, prio: 22, far: 80 * KM });
+      if (c) out.push({ lng: c[0], lat: c[1], text, px: 14.5, weight: 500, italic: true, color: C.water, prio: 22, far: 80 * KM });
     });
   }
   if (z >= 14) {
@@ -137,7 +137,7 @@ function decodeTile(buffer, x, y, z) {
       if (!text || level > 6 || seen.has(text) || (g.type !== 'LineString' && g.type !== 'MultiLineString')) return;
       seen.add(text);
       const c = lineMiddle(g.coordinates);
-      if (c) out.push({ lng: c[0], lat: c[1], text, px: level <= 1 ? 11.5 : 10.5, italic: true, color: C.street, prio: 30 + level, far: level <= 2 ? 8 * KM : 4 * KM });
+      if (c) out.push({ lng: c[0], lat: c[1], text, px: level <= 1 ? 14.5 : 13.5, weight: 500, italic: true, color: C.street, prio: 30 + level, far: level <= 2 ? 8 * KM : 4 * KM });
     });
   }
   return out;
@@ -185,10 +185,10 @@ function tileTemplate() {
 // ---------------------------------------------------------------- offline: GeoNames towns and villages
 const GEO_TILE = 4;
 function geoItem([name, lng, lat, pop, kind]) {
-  if (kind === 2) return { lng, lat, text: name.toUpperCase(), px: 11, weight: 500, color: C.suburb, prio: 18, far: 25 * KM };
-  if (pop >= 5000) return { lng, lat, text: name, px: 13, weight: 500, color: C.town, dot: true, dotSize: 4, prio: 14.5, far: 120 * KM };
-  if (pop >= 2000) return { lng, lat, text: name, px: 12, color: C.village, dot: true, dotSize: 3, prio: 16, far: 60 * KM };
-  return { lng, lat, text: name, px: 11.5, color: C.village, dot: true, dotSize: 3, prio: 17, far: 35 * KM };
+  if (kind === 2) return { lng, lat, text: name.toUpperCase(), px: 14, weight: 600, color: C.suburb, prio: 18, far: 25 * KM };
+  if (pop >= 5000) return { lng, lat, text: name, px: 17, weight: 600, color: C.town, dot: true, dotSize: 7, prio: 14.5, far: 120 * KM };
+  if (pop >= 2000) return { lng, lat, text: name, px: 15, weight: 500, color: C.village, dot: true, dotSize: 6, prio: 16, far: 60 * KM };
+  return { lng, lat, text: name, px: 14, weight: 500, color: C.village, dot: true, dotSize: 5, prio: 17, far: 35 * KM };
 }
 let geoIndex = null;
 function geoTiles() {

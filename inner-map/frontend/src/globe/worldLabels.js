@@ -98,12 +98,12 @@ export function createWorldLabels(viewer, data, opts) {
     push(lng, lat, name, { near: 500 * KM, far: countryFar(rank), px, font: font(600, px), color: WHITE, prio: 1 + rank * 0.5, scale: shrinkFar });
   }
   for (const [name, lng, lat, rank] of data.states) {
-    const px = 12.5 * sp;
+    const px = 14 * sp;
     push(lng, lat, name, { near: 40 * KM, far: stateFar(rank), px, font: font(400, px), color: STATE, prio: 6 + rank });
   }
   for (const [name, lng, lat, rank, kind] of data.cities) {
     const capital = kind === 2;
-    const px = (capital || rank <= 2 ? 14 : 13) * sc;
+    const px = (capital || rank <= 2 ? 16 : 15) * sc;
     push(lng, lat, name, {
       // Where the OpenStreetMap layer has its own names, hand over to it when zoomed in.
       near: opts.detailAreas?.some((b) => inside(b, lat, lng)) ? 60 * KM : 0,
@@ -128,16 +128,16 @@ export function createWorldLabels(viewer, data, opts) {
       font: it.font,
       fillColor: it.color,
       outlineColor: OUTLINE,
-      outlineWidth: 3,
+      outlineWidth: 4,
       style: LabelStyle.FILL_AND_OUTLINE,
       horizontalOrigin: it.dot ? HorizontalOrigin.LEFT : HorizontalOrigin.CENTER,
       verticalOrigin: VerticalOrigin.CENTER,
-      pixelOffset: it.dot ? new Cartesian2(7, 0) : Cartesian2.ZERO,
+      pixelOffset: it.dot ? new Cartesian2(Math.round((it.dotSize || 5) / 2) + 5, 0) : Cartesian2.ZERO,
       scaleByDistance: it.scale,
       show: false,
     });
     if (it.dot === true) {
-      it.dot = dots.add({ position: it.position, pixelSize: it.dotSize, color: it.dotColor, outlineColor: OUTLINE, outlineWidth: 1, show: false });
+      it.dot = dots.add({ position: it.position, pixelSize: it.dotSize, color: it.dotColor, outlineColor: OUTLINE, outlineWidth: 1.5, show: false });
     }
   };
   const setShown = (it, show) => {
@@ -179,7 +179,7 @@ export function createWorldLabels(viewer, data, opts) {
           Cartesian3.normalize(Cartesian3.subtract(cam, it.position, toCam), toCam);
           if (Cartesian3.dot(normal, toCam) > 0.22 && scene.cartesianToCanvasCoordinates(it.position, canvasPos)) {
             const s = it.scale ? it.scale.nearValue : 1;
-            const bw = it.text.length * it.px * 0.58 * s + (it.dot ? 10 : 0);
+            const bw = it.text.length * it.px * 0.58 * s + (it.dot ? (it.dotSize || 5) + 8 : 0);
             const bh = it.px * 1.35 * s;
             const x0 = it.dot ? canvasPos.x - 4 : canvasPos.x - bw / 2;
             const y0 = canvasPos.y - bh / 2;

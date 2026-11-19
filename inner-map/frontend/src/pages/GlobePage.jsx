@@ -27,6 +27,14 @@ import {
   Matrix4,
   Transforms,
   Math as CesiumMath,
+  ArcType,
+  CallbackProperty,
+  Ellipsoid,
+  EllipsoidalOccluder,
+  HorizontalOrigin,
+  LabelStyle,
+  NearFarScalar,
+  VerticalOrigin,
   buildModuleUrl,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
@@ -43,6 +51,9 @@ import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE } from '../maps/providers';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
+import { createPhotoMarkers, fetchPlacePhotos, loadWorldPhotos, mergePhotos, searchKey, viewRadiusKm, worldPhotosInView, PHOTOS_MAX_HEIGHT } from '../globe/placePhotos';
+import PhotoGallery, { PhotoStrip } from '../components/EarthPhotos';
+import EarthSettings, { detailPreset } from '../components/EarthSettings';
 import { labelFont } from '../typography/typographyConfig';
 import { VectorImageryProvider } from '../globe/VectorImageryProvider';
 import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
@@ -66,6 +77,23 @@ const STYLES = [
   { id: 'clean', label: 'Satellite only', note: 'Imagery without names' },
   { id: 'map', label: 'Map', note: 'The Inner Map street map' },
 ];
+// Map settings remembered on this device (type, details, visuals).
+const BASEMAP_KEY = 'innermap.earth.basemap';
+function readBasemap() {
+  try {
+    return JSON.parse(localStorage.getItem(BASEMAP_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+const PHOTOS_KEY = 'innermap.earth.photos';
+function readPhotosSetting() {
+  try {
+    return localStorage.getItem(PHOTOS_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
 const START = { lng: 78.9, lat: 21 }; // whole-Earth view over South Asia when no GPS position is known
 
 function rect(b) {
@@ -81,6 +109,19 @@ function unionBounds(list) {
     east: Math.max(a.east, b.east),
     north: Math.max(a.north, b.north),
   }));
+}
+
+/**
+ * Camera height that shows the whole Earth with a margin on this screen: on a tall, narrow phone
+ * the width is the limit, so the camera has to be further out than on a wide desktop.
+ */
+function wholeEarthHeight(viewer) {
+  const R = 6371000;
+  const f = viewer?.camera.frustum;
+  if (!f?.fovy || !f.aspectRatio) return 14500000;
+  const fovx = 2 * Math.atan(Math.tan(f.fovy / 2) * f.aspectRatio);
+  const half = (Math.min(fovx, f.fovy) / 2) * 0.82;
+  return Math.max(14500000, R / Math.sin(half) - R);
 }
 
 function formatAltitude(m) {
@@ -136,9 +177,9 @@ function MenuButton({ id, label, items, openId, setOpenId }) {
   );
 }
 
-function ToolButton({ icon, label, onClick, active, disabled }) {
+function ToolButton({ icon, label, onClick, active, disabled, ...rest }) {
   return (
-    <button type="button" className={`earth-tool ${active ? 'on' : ''}`} onClick={onClick} title={label} aria-label={label} aria-pressed={active} disabled={disabled}>
+    <button type="button" className={`earth-tool ${active ? 'on' : ''}`} onClick={onClick} title={label} aria-label={label} aria-pressed={active} disabled={disabled} {...rest}>
       <Icon name={icon} size={20} />
     </button>
   );
@@ -174,10 +215,18 @@ export default function GlobePage() {
   const [toast, setToast] = useState(null);
   const [globeData, setGlobeData] = useState({ imagery: { available: false }, terrain: { available: false } });
   const [base, setBase] = useState(() => (SATELLITE_SOURCE ? 'satellite' : 'naturalEarth'));
-  const [mapStyle, setMapStyle] = useState('labels');
-  const [showPlaces, setShowPlaces] = useState(true);
-  const [showLayers, setShowLayers] = useState(true);
-  const [showRegions, setShowRegions] = useState(true);
+  const savedBasemap = useRef(null);
+  if (!savedBasemap.current) savedBasemap.current = readBasemap();
+  const sb = savedBasemap.current;
+  const [mapStyle, setMapStyle] = useState(['labels', 'clean', 'map'].includes(sb.style) ? sb.style : 'labels');
+  const [detail, setDetail] = useState(['clean', 'exploration', 'everything', 'custom'].includes(sb.detail) ? sb.detail : 'everything');
+  const [namesPref, setNamesPref] = useState(sb.names ?? true); // names on satellite (kept while the map type shows)
+  const [showPlaces, setShowPlaces] = useState(sb.places ?? true);
+  const [showLayers, setShowLayers] = useState(sb.layers ?? true);
+  const [showRegions, setShowRegions] = useState(sb.regions ?? true);
+  const [showGrid, setShowGrid] = useState(sb.grid ?? false);
+  const [showSky, setShowSky] = useState(sb.sky ?? true);
+  const [terrainOn, setTerrainOn] = useState(sb.terrain ?? true);
   const [follow, setFollow] = useState(false);
   const [offline, setOffline] = useState({ supported: true, ready: false });
   const [caching, setCaching] = useState(null); // { done, total }
@@ -188,6 +237,14 @@ export default function GlobePage() {
   const [placeName, setPlaceName] = useState('');
   const [camera, setCamera] = useState({ lat: null, lng: null, height: null, heading: 0, pitch: -90 });
   const [mobileMenu, setMobileMenu] = useState(false);
+  // Photos layer: famous places with photos (Wikidata + Wikimedia Commons, online only).
+  const [showPhotos, setShowPhotos] = useState(readPhotosSetting);
+  const [photos, setPhotos] = useState([]);
+  const [photosState, setPhotosState] = useState({ status: 'idle' }); // idle | far | loading | ready | error | offline
+  const [viewing, setViewing] = useState(null); // photo open in the viewer
+  const [photoRetry, setPhotoRetry] = useState(0);
+  const photoLayerRef = useRef(null);
+  const photoMarkersRef = useRef(null);
 
   const online = status !== 'offline';
   const serverReachable = status === 'online';
@@ -220,7 +277,7 @@ export default function GlobePage() {
       }
     };
     const onDown = (e) => {
-      if (!e.target.closest?.('.earth-menu, .earth-account, .earth-style, .earth-mobile-menu, .earth-hamburger')) {
+      if (!e.target.closest?.('.earth-menu, .earth-account, .earth-style, .earth-settings, [data-settings-toggle], .earth-mobile-menu, .earth-hamburger')) {
         setMenu(null);
         setAccountOpen(false);
         setStyleOpen(false);
@@ -254,19 +311,56 @@ export default function GlobePage() {
         terrainProvider: new EllipsoidTerrainProvider(),
         showRenderLoopErrors: false, // we show our own, clearer message (below)
         requestRenderMode: true, // only redraw when something changes (saves battery)
+        // No 4x multisampling: it multiplies the graphics memory of every frame. On laptops with
+        // shared (integrated) graphics and little free memory the browser then cannot create, or
+        // later takes away, the 3D surface - and the globe stays blank.
+        msaaSamples: 1,
         maximumRenderTimeChange: Infinity,
       });
     } catch (err) {
-      setError(`The 3D Earth could not start: ${err.message}. Your browser or graphics driver may not support WebGL.`);
+      setError({
+        text: `The 3D Earth could not start: ${err.message}. The graphics memory may be full - close other tabs or windows showing 3D maps, games or videos (and other copies of InnerMap), then reload. If it keeps happening, check that hardware acceleration is on in the browser settings.`,
+        reload: true,
+      });
       return undefined;
     }
     const scene = viewer.scene;
+    // Phones and tablets: many mobile graphics chips lack full-precision maths in pixel shaders,
+    // which Cesium's logarithmic depth buffer needs - the Earth's surface then disappears when
+    // zoomed out (only the names stay). Use the standard depth buffer there, and skip the
+    // high-dynamic-range pass (less graphics memory, fewer driver problems).
+    try {
+      const gl = scene.context._gl;
+      const hp = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+      const touch = window.matchMedia?.('(pointer: coarse)').matches;
+      if (touch || !hp || hp.precision < 23) {
+        scene.logarithmicDepthBuffer = false;
+        scene.highDynamicRange = false;
+      }
+    } catch {
+      /* keep Cesium's defaults */
+    }
+    // The browser can take the graphics memory back at any time (low memory, driver reset): the
+    // canvas then goes blank. Say so and offer a reload, instead of leaving an empty screen.
+    let contextLost = false;
+    const LOST = {
+      text: 'The 3D Earth lost its graphics memory (the computer is low on memory, or the graphics driver restarted), so it cannot be drawn. Close other tabs with 3D maps, games or videos, then reload.',
+      reload: true,
+    };
+    const onContextLost = (e) => {
+      e.preventDefault();
+      contextLost = true;
+      setError(LOST);
+    };
+    scene.canvas.addEventListener('webglcontextlost', onContextLost);
     // Cesium builds the globe surface in web workers served from /cesium. If a deployment lacks
     // those files, rendering stops with an unhelpful "[object Object]": say what is wrong instead.
     let filesMissing = false;
     const MISSING = 'The 3D Earth files (/cesium) are missing from this website, so the globe cannot be drawn. The site needs to be rebuilt with the Cesium files included.';
     const stopRenderError = scene.renderError.addEventListener((_s, err) => {
-      setError(filesMissing ? MISSING : `The 3D Earth stopped drawing: ${err?.message || 'a background task failed'}. Reload the page to try again.`);
+      // after a lost graphics context Cesium fails in odd ways: keep the clear message
+      if (contextLost || scene.context?._gl?.isContextLost?.()) return setError(LOST);
+      setError(filesMissing ? MISSING : { text: `The 3D Earth stopped drawing: ${err?.message || 'a background task failed'}. Reload the page to try again.`, reload: true });
     });
     fetch(buildModuleUrl('Workers/createVerticesFromHeightmap.js'), { method: 'HEAD', cache: 'no-store' })
       .then((r) => {
@@ -330,6 +424,7 @@ export default function GlobePage() {
       setReady(false);
       stopTileListener();
       stopRenderError();
+      scene.canvas.removeEventListener('webglcontextlost', onContextLost);
       stopChanged();
       stopMoveEnd();
       if (!viewer.isDestroyed()) viewer.destroy();
@@ -343,7 +438,7 @@ export default function GlobePage() {
     if (!ready || !viewer || introDone.current) return;
     introDone.current = true;
     const target = position || START;
-    viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, 36000000) });
+    viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, Math.max(36000000, wholeEarthHeight(viewer) * 2)) });
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hide the loading screen once the first imagery has loaded (at most 10 s; at least ~1 s so it
@@ -387,7 +482,7 @@ export default function GlobePage() {
     const viewer = viewerRef.current;
     if (viewer && !viewer.isDestroyed()) {
       const target = position || START;
-      viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(target.lng, target.lat, 14500000), duration: 2.4 });
+      viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(target.lng, target.lat, wholeEarthHeight(viewer)), duration: 2.4 });
     }
     const t = setTimeout(() => setSplash('gone'), 650);
     return () => clearTimeout(t);
@@ -406,7 +501,7 @@ export default function GlobePage() {
     const viewer = viewerRef.current;
     if (!ready || !viewer) return undefined;
     let cancelled = false;
-    if (globeData.terrain.available && serverReachable) {
+    if (globeData.terrain.available && serverReachable && terrainOn) {
       CesiumTerrainProvider.fromUrl('/globe-data/terrain')
         .then((tp) => {
           if (!cancelled && !viewer.isDestroyed()) viewer.terrainProvider = tp;
@@ -418,7 +513,7 @@ export default function GlobePage() {
     return () => {
       cancelled = true;
     };
-  }, [ready, globeData.terrain.available, serverReachable]);
+  }, [ready, globeData.terrain.available, serverReachable, terrainOn]);
 
   // ------------------------------------------------------------ imagery over Natural Earth
   const effectiveBase = base === 'osm' && !online ? 'naturalEarth' : base === 'local' && !serverReachable ? 'naturalEarth' : base;
@@ -522,7 +617,7 @@ export default function GlobePage() {
       scaleCities: t.mapLabels.scale.cities,
       bold: t.mapLabels.weight === 'bold',
       detailAreas,
-      avoid: '.earth-controls, .earth-style, .earth-status',
+      avoid: '.earth-controls, .earth-style, .earth-status, .earth-settings',
     });
     layer.setVisible(showWorldNames);
     worldLabelsRef.current = layer;
@@ -535,6 +630,206 @@ export default function GlobePage() {
   useEffect(() => {
     worldLabelsRef.current?.setVisible(showWorldNames);
   }, [showWorldNames]);
+
+  // ------------------------------------------------------------ photos of famous places
+  // A satellite-view layer (hidden in the "Map" style). Online only; nothing is stored.
+  const photosActive = showPhotos && mapStyle !== 'map';
+  const togglePhotos = (on = !showPhotos) => {
+    setShowPhotos(on);
+    if (on && mapStyle === 'map') setMapStyle('labels');
+    try {
+      localStorage.setItem(PHOTOS_KEY, on ? 'on' : 'off');
+    } catch {
+      /* private window: the choice lasts for this visit only */
+    }
+  };
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !photosActive || !photoLayerRef.current) return undefined;
+    const markers = createPhotoMarkers(viewer, photoLayerRef.current, (p) => setViewing(p));
+    photoMarkersRef.current = markers;
+    return () => {
+      markers.destroy();
+      photoMarkersRef.current = null;
+    };
+  }, [ready, photosActive]);
+  useEffect(() => {
+    photoMarkersRef.current?.setPhotos(photosActive ? photos : []);
+  }, [photos, photosActive, ready]);
+  useEffect(() => {
+    photoMarkersRef.current?.setSelected(viewing?.id ?? null);
+  }, [viewing]);
+
+  // Which places to show: from the built-in world list everywhere (whole-Earth view), plus - closer
+  // in - the places Wikidata knows around the centre of the view. Debounced after camera moves.
+  const [worldPhotos, setWorldPhotos] = useState(null);
+  useEffect(() => {
+    if (!photosActive || worldPhotos) return;
+    loadWorldPhotos()
+      .then(setWorldPhotos)
+      .catch(() => {});
+  }, [photosActive, worldPhotos, status]);
+
+  const photoSearch = useRef(0);
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !photosActive) return undefined;
+    if (!online) {
+      setPhotos([]);
+      setPhotosState({ status: 'offline' });
+      return undefined;
+    }
+    const t = setTimeout(() => {
+      if (viewer.isDestroyed()) return;
+      const id = ++photoSearch.current;
+      const world = worldPhotosInView(worldPhotos, viewer);
+      if (camera.lat == null || camera.height > PHOTOS_MAX_HEIGHT) {
+        setPhotos(world);
+        setPhotosState({ status: worldPhotos ? 'ready' : 'loading' });
+        return;
+      }
+      const center = { lat: camera.lat, lng: camera.lng };
+      const q = searchKey(center.lat, center.lng, viewRadiusKm(viewer, center));
+      // (the previous places stay until the new search answers - cached searches answer at once)
+      setPhotosState((s) => (s.key === q.key && s.status === 'ready' ? s : { status: 'loading', key: q.key }));
+      fetchPlacePhotos(q)
+        .then((list) => {
+          if (id !== photoSearch.current) return;
+          setPhotos(mergePhotos(list, world));
+          setPhotosState({ status: 'ready', key: q.key });
+        })
+        .catch((err) => {
+          if (id !== photoSearch.current) return;
+          setPhotosState(world.length ? { status: 'ready' } : { status: 'error', message: err.message || 'Photos could not be loaded.' });
+        });
+    }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, photosActive, online, worldPhotos, camera.lat, camera.lng, Math.round(camera.height / 1000), camera.heading, photoRetry]);
+
+  const openPhoto = (p) => setViewing(p);
+  useEffect(() => {
+    window.__innerMapPhotos = { open: setViewing }; // diagnostics in the browser console
+    return () => delete window.__innerMapPhotos;
+  }, []);
+
+  // ------------------------------------------------------------ map settings
+  // Type (satellite / map) x details (clean, exploration, everything, custom) -> the map style and
+  // which overlays show. Everything is remembered on this device.
+  const mapType = mapStyle === 'map' ? 'map' : 'satellite';
+  const chooseType = (t) => {
+    if (t === 'map') setMapStyle('map');
+    else setMapStyle(namesPref ? 'labels' : 'clean');
+  };
+  const chooseDetail = (d) => {
+    setDetail(d);
+    const p = detailPreset(d);
+    if (!p) return; // custom: keep what is shown now
+    setNamesPref(p.names);
+    setShowPlaces(p.places);
+    setShowRegions(p.regions);
+    setShowLayers(p.layers);
+    if (mapStyle !== 'map') setMapStyle(p.names ? 'labels' : 'clean');
+  };
+  const changeShown = (patch) => {
+    setDetail('custom');
+    if ('names' in patch) {
+      setNamesPref(patch.names);
+      if (mapStyle !== 'map') setMapStyle(patch.names ? 'labels' : 'clean');
+    }
+    if ('places' in patch) setShowPlaces(patch.places);
+    if ('regions' in patch) setShowRegions(patch.regions);
+    if ('layers' in patch) setShowLayers(patch.layers);
+  };
+  // View menu styles: "Satellite with labels" / "Satellite only" / "Map"
+  const chooseStyle = (id) => {
+    if (id === 'map') return chooseType('map');
+    if (id === 'clean') return chooseDetail('clean');
+    if (detail === 'clean') return chooseDetail('exploration');
+    setNamesPref(true);
+    return setMapStyle('labels');
+  };
+  const changeVisual = (key, on) => {
+    if (key === 'photos') togglePhotos(on);
+    else if (key === 'grid') setShowGrid(on);
+    else if (key === 'sky') setShowSky(on);
+    else if (key === 'terrain') setTerrainOn(on);
+  };
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        BASEMAP_KEY,
+        JSON.stringify({ style: mapStyle, detail, names: namesPref, places: showPlaces, regions: showRegions, layers: showLayers, grid: showGrid, sky: showSky, terrain: terrainOn })
+      );
+    } catch {
+      /* private window: settings last for this visit only */
+    }
+  }, [mapStyle, detail, namesPref, showPlaces, showRegions, showLayers, showGrid, showSky, terrainOn]);
+
+  // Sky and atmosphere: stars, the glow at the Earth's edge and the haze over the ground.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer) return;
+    const { scene } = viewer;
+    if (scene.skyBox) scene.skyBox.show = showSky;
+    if (scene.skyAtmosphere) scene.skyAtmosphere.show = showSky;
+    scene.globe.showGroundAtmosphere = showSky;
+    scene.requestRender();
+  }, [ready, showSky]);
+
+  // Gridlines: latitude/longitude lines every 10° (equator, tropics and polar circles highlighted).
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !showGrid) return undefined;
+    const ds = new CustomDataSource('gridlines');
+    const line = Color.WHITE.withAlpha(0.35);
+    const special = Color.fromCssColorString('#fbbc04').withAlpha(0.8);
+    const add = (positions, color, width) =>
+      ds.entities.add({ polyline: { positions: Cartesian3.fromDegreesArray(positions), width, material: color, arcType: ArcType.RHUMB } });
+    for (let lng = -180; lng < 180; lng += 10) {
+      const pts = [];
+      for (let lat = -80; lat <= 80; lat += 5) pts.push(lng, lat);
+      add(pts, lng === 0 ? special : line, lng === 0 ? 1.6 : 1);
+    }
+    const parallel = (lat, color, width) => {
+      const pts = [];
+      for (let lng = -180; lng <= 180; lng += 5) pts.push(lng, lat);
+      add(pts, color, width);
+    };
+    for (let lat = -80; lat <= 80; lat += 10) parallel(lat, lat === 0 ? special : line, lat === 0 ? 1.6 : 1);
+    [23.44, -23.44, 66.56, -66.56].forEach((lat) => parallel(lat, special.withAlpha(0.45), 1));
+    // labels on the far side of the Earth would show through it: hide them there
+    const occluder = new EllipsoidalOccluder(Ellipsoid.WGS84, viewer.camera.positionWC);
+    const label = (text, lng, lat) => {
+      const position = Cartesian3.fromDegrees(lng, lat);
+      return ds.entities.add({
+        position,
+        label: {
+          show: new CallbackProperty(() => {
+            occluder.cameraPosition = viewer.camera.positionWC;
+            return occluder.isPointVisible(position);
+          }, false),
+          text,
+          font: '12px sans-serif',
+          fillColor: Color.WHITE.withAlpha(0.85),
+          outlineColor: Color.BLACK,
+          outlineWidth: 3,
+          style: LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cartesian2(4, -4),
+          horizontalOrigin: HorizontalOrigin.LEFT,
+          verticalOrigin: VerticalOrigin.BOTTOM,
+          translucencyByDistance: new NearFarScalar(2.0e6, 1, 3.0e7, 0.6),
+        },
+      });
+    };
+    for (let lat = -80; lat <= 80; lat += 10) for (let lng = -180; lng < 180; lng += 60) label(`${Math.abs(lat)}°${lat > 0 ? 'N' : lat < 0 ? 'S' : ''}`, lng, lat);
+    for (let lng = -170; lng <= 180; lng += 10) label(`${Math.abs(lng)}°${lng > 0 && lng < 180 ? 'E' : lng < 0 ? 'W' : ''}`, lng, 0);
+    viewer.dataSources.add(ds);
+    viewer.scene.requestRender();
+    return () => {
+      if (!viewer.isDestroyed()) viewer.dataSources.remove(ds, true);
+    };
+  }, [ready, showGrid]);
 
   // ------------------------------------------------------------ overlays
   useEffect(() => {
@@ -629,7 +924,7 @@ export default function GlobePage() {
   };
   const wholeEarth = () => {
     const c = camera.lat != null ? camera : position || START;
-    flyToPoint(c.lat, c.lng, 14500000, 1.8);
+    flyToPoint(c.lat, c.lng, wholeEarthHeight(viewerRef.current), 1.8);
   };
 
   const toggleFullscreen = () => {
@@ -712,7 +1007,7 @@ export default function GlobePage() {
   };
 
   // ------------------------------------------------------------ menus (real actions only)
-  const styleItems = STYLES.map((s) => ({ label: s.label, checked: mapStyle === s.id, onClick: () => setMapStyle(s.id) }));
+  const styleItems = STYLES.map((s) => ({ label: s.label, checked: mapStyle === s.id, onClick: () => chooseStyle(s.id) }));
   const MENUS = [
     {
       id: 'file',
@@ -750,9 +1045,12 @@ export default function GlobePage() {
         { sep: true },
         ...styleItems,
         { sep: true },
-        { label: 'Saved places', checked: showPlaces, onClick: () => setShowPlaces((v) => !v) },
-        { label: 'Downloaded area outlines', checked: showRegions, onClick: () => setShowRegions((v) => !v) },
-        ...(collections.length ? [{ label: `Imported layers (${collections.length})`, checked: showLayers, onClick: () => setShowLayers((v) => !v) }] : []),
+        { label: 'Photos of places (online)', checked: photosActive, onClick: () => togglePhotos(!photosActive) },
+        { label: 'Saved places', checked: showPlaces, onClick: () => changeShown({ places: !showPlaces }) },
+        { label: 'Downloaded area outlines', checked: showRegions, onClick: () => changeShown({ regions: !showRegions }) },
+        ...(collections.length ? [{ label: `Imported layers (${collections.length})`, checked: showLayers, onClick: () => changeShown({ layers: !showLayers }) }] : []),
+        { label: 'Gridlines', checked: showGrid, onClick: () => setShowGrid((v) => !v) },
+        { label: 'Map settings…', onClick: () => setStyleOpen(true) },
         { sep: true },
         { label: 'North up', onClick: northUp },
         { label: tilted ? 'Look straight down' : 'Tilt view (3D)', onClick: toggle3d },
@@ -820,7 +1118,7 @@ export default function GlobePage() {
             <span className="earth-sep" />
             <ToolButton icon="pin" label="Add placemark" onClick={needAccount(() => startPlacemark('center'))} />
             <ToolButton icon="route2" label="Directions" onClick={needAccount(() => openMap({ openDirections: true }))} />
-            <ToolButton icon="layers" label="Map style" onClick={() => setStyleOpen((o) => !o)} active={styleOpen} />
+            <ToolButton icon="layers" label="Map settings" onClick={() => setStyleOpen((o) => !o)} active={styleOpen} data-settings-toggle="" />
             <span className="earth-sep" />
             <ToolButton icon="ruler" label="Measure distance and area" onClick={needAccount(() => openMap({ openMeasure: true }))} />
             <ToolButton icon="cloudDown" label="Download an area for offline use" onClick={needAccount(() => navigate('/download'))} />
@@ -908,10 +1206,43 @@ export default function GlobePage() {
       )}
 
       <div ref={containerRef} className="earth-canvas" />
+      <div ref={photoLayerRef} className="earth-photo-layer" aria-label="Photos on the globe" />
+
+      {mapStyle !== 'map' && (
+        <button
+          type="button"
+          className={`earth-photos-toggle ${photosActive ? 'on' : ''}`}
+          onClick={() => togglePhotos(!photosActive)}
+          aria-pressed={photosActive}
+          title={photosActive ? 'Hide photos' : 'Show photos of famous places (online)'}
+        >
+          <Icon name="photo" size={18} />
+          <span>Photos</span>
+          <span className="earth-switch" aria-hidden="true" />
+        </button>
+      )}
+      {photosActive && (
+        <PhotoStrip
+          photos={photos}
+          state={photosState}
+          selectedId={viewing?.id}
+          onOpen={openPhoto}
+          onRetry={() => setPhotoRetry((n) => n + 1)}
+          onClose={() => togglePhotos(false)}
+        />
+      )}
+      {viewing && (
+        <PhotoGallery place={viewing} onClose={() => setViewing(null)} onFly={(p) => { setViewing(null); flyToPoint(p.lat, p.lng, 2500, 2); }} />
+      )}
 
       {error && (
         <div className="earth-error" role="alert">
-          {error}
+          <span>{typeof error === 'string' ? error : error.text}</span>
+          {error.reload && (
+            <button type="button" className="earth-error-reload" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          )}
           <button type="button" onClick={() => setError(null)} aria-label="Dismiss">
             ×
           </button>
@@ -926,63 +1257,43 @@ export default function GlobePage() {
 
       {/* bottom-left: map style */}
       <div className="earth-style">
-        <button type="button" className={`earth-style-thumb view-${mapStyle === 'map' ? 'default' : 'satellite'}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen} title="Map style" aria-label="Map style">
+        <button type="button" className={`earth-style-thumb view-${mapStyle === 'map' ? 'default' : 'satellite'}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen} title="Map settings" aria-label="Map settings" data-settings-toggle="">
           <span className="view-swatch" />
         </button>
-        {styleOpen && (
-          <div className="earth-style-panel" role="dialog" aria-label="Map style">
-            <h3>Map style</h3>
-            <div className="earth-style-options" role="radiogroup" aria-label="Map style">
-              {STYLES.map((s) => (
-                <button key={s.id} type="button" role="radio" aria-checked={mapStyle === s.id} className={mapStyle === s.id ? 'on' : ''} onClick={() => setMapStyle(s.id)}>
-                  <span className={`earth-style-swatch view-${s.id === 'map' ? 'default' : 'satellite'}`}>
-                    <span className="view-swatch" />
-                  </span>
-                  <strong>{s.label}</strong>
-                  <small>{s.note}</small>
-                </button>
-              ))}
-            </div>
-            <label className="field">
-              <span>Imagery</span>
-              <select value={base} onChange={(e) => setBase(e.target.value)}>
-                <option value="satellite">{IMAGERY.satellite}</option>
-                <option value="naturalEarth">{IMAGERY.naturalEarth}</option>
-                {globeData.imagery.available && <option value="local">{globeData.imagery.name}</option>}
-                <option value="osm" disabled={!online}>
-                  {IMAGERY.osm}
-                </option>
-              </select>
-            </label>
-            {base !== effectiveBase && <p className="warn-text tiny">Not available offline - showing Natural Earth instead.</p>}
-            {effectiveBase === 'satellite' && (
-              <p className="muted tiny">
-                {SATELLITE_SOURCE.resolution ? `${SATELLITE_SOURCE.resolution}. ` : ''}
-                {online ? 'Downloaded satellite packs are used first.' : 'Offline: only areas with a downloaded satellite pack; elsewhere Natural Earth.'}{' '}
-                {online && HIRES_IMAGERY_SOURCE ? `Close up: sharp ${HIRES_IMAGERY_SOURCE.label} (online only). ` : ''}
-                {SATELLITE_SOURCE.licenceNote}
-              </p>
-            )}
-            <div className="earth-style-checks">
-              <label className="check">
-                <input type="checkbox" checked={showPlaces} onChange={(e) => setShowPlaces(e.target.checked)} />
-                Saved places ({locations.length})
-              </label>
-              <label className="check">
-                <input type="checkbox" checked={showRegions} onChange={(e) => setShowRegions(e.target.checked)} />
-                Downloaded area outlines
-              </label>
-              {collections.length > 0 && (
-                <label className="check">
-                  <input type="checkbox" checked={showLayers} onChange={(e) => setShowLayers(e.target.checked)} />
-                  Imported layers ({collections.length})
-                </label>
-              )}
-            </div>
-            {!detailBounds && mapStyle !== 'clean' && <p className="muted tiny">Roads and names appear where map data is available (server area or your downloads).</p>}
-          </div>
-        )}
       </div>
+
+      {styleOpen && (
+        <EarthSettings
+          onClose={() => setStyleOpen(false)}
+          type={mapType}
+          onType={chooseType}
+          detail={detail}
+          onDetail={chooseDetail}
+          shown={{ names: namesPref, places: showPlaces, regions: showRegions, layers: showLayers }}
+          onShown={changeShown}
+          counts={{ places: locations.length, layers: collections.length }}
+          imagery={{
+            value: base,
+            onChange: setBase,
+            options: [
+              { value: 'satellite', label: IMAGERY.satellite },
+              { value: 'naturalEarth', label: IMAGERY.naturalEarth },
+              ...(globeData.imagery.available ? [{ value: 'local', label: globeData.imagery.name }] : []),
+              { value: 'osm', label: IMAGERY.osm, disabled: !online },
+            ],
+            notes: [
+              base !== effectiveBase ? 'Not available offline - showing Natural Earth instead.' : null,
+              effectiveBase === 'satellite'
+                ? `${SATELLITE_SOURCE.resolution ? `${SATELLITE_SOURCE.resolution}. ` : ''}${online ? 'Downloaded satellite packs are used first.' : 'Offline: only areas with a downloaded satellite pack; elsewhere Natural Earth.'}${online && HIRES_IMAGERY_SOURCE ? ` Close up: sharp ${HIRES_IMAGERY_SOURCE.label} (online only).` : ''} ${SATELLITE_SOURCE.licenceNote || ''}`
+                : null,
+            ],
+          }}
+          visuals={{ photos: photosActive, grid: showGrid, sky: showSky, terrain: terrainOn, terrainAvailable: globeData.terrain.available && serverReachable }}
+          onVisual={changeVisual}
+          online={online}
+          hint={!detailBounds && mapStyle !== 'clean' && mapStyle !== 'map' ? 'Street names appear where map data is available (server area or your downloads).' : null}
+        />
+      )}
 
       {/* bottom-right: camera controls */}
       <div className="earth-controls" role="toolbar" aria-label="Camera">
@@ -1069,6 +1380,9 @@ export default function GlobePage() {
               </li>
               <li>
                 <strong>Roads and names:</strong> © OpenStreetMap contributors · Protomaps, from the Inner Map server or your downloaded areas.
+              </li>
+              <li>
+                <strong>Photos:</strong> famous places from Wikidata, photos from Wikimedia Commons (each credited with its author and licence). Online only - only the centre of your view is sent to Wikidata to find them.
               </li>
               <li>
                 <strong>Offline files:</strong>{' '}

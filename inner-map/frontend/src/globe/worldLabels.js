@@ -24,7 +24,7 @@ import {
 } from 'cesium';
 
 const KM = 1000;
-const MAX_SHOWN = 450; // names on screen at once
+const MAX_SHOWN = 600; // names on screen at once
 const BOTTOM_BAR = 52; // px kept free for the map controls and credits
 let dataPromise = null;
 
@@ -56,6 +56,12 @@ const OUTLINE = Color.fromCssColorString('rgba(0,0,0,0.85)');
 const STATE = Color.fromCssColorString('#e8e4dc');
 const SEA = Color.fromCssColorString('#a9d6ff');
 const CAPITAL = Color.fromCssColorString('#ffd54f');
+
+const colorCache = new Map();
+function toColor(css) {
+  if (!colorCache.has(css)) colorCache.set(css, Color.fromCssColorString(css));
+  return colorCache.get(css);
+}
 
 function inside(b, lat, lng) {
   return b && lat >= b.south && lat <= b.north && lng >= b.west && lng <= b.east;
@@ -162,6 +168,7 @@ export function createWorldLabels(viewer, data, opts) {
       }
     }
     shownCount = 0;
+    const shownNames = new Map(); // text -> screen points already showing that name
     for (const it of items) {
       let show = false;
       if (visible && shownCount < MAX_SHOWN) {
@@ -178,8 +185,12 @@ export function createWorldLabels(viewer, data, opts) {
             const y0 = canvasPos.y - bh / 2;
             const box = [x0 - 3, y0 - 2, x0 + bw + 3, y0 + bh + 2];
             // whole name on screen, and clear of the controls / credits along the bottom
-            if (box[0] >= 0 && box[2] <= w && box[1] >= 0 && box[3] <= h - BOTTOM_BAR && !placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) {
+            const twins = shownNames.get(it.text);
+            const repeated = twins && twins.some(([x, y]) => Math.abs(x - canvasPos.x) < 260 && Math.abs(y - canvasPos.y) < 160);
+            if (!repeated && box[0] >= 0 && box[2] <= w && box[1] >= 0 && box[3] <= h - BOTTOM_BAR && !placed.some((p) => box[0] < p[2] && box[2] > p[0] && box[1] < p[3] && box[3] > p[1])) {
               placed.push(box);
+              if (twins) twins.push([canvasPos.x, canvasPos.y]);
+              else shownNames.set(it.text, [[canvasPos.x, canvasPos.y]]);
               show = true;
             }
           }
@@ -203,6 +214,18 @@ export function createWorldLabels(viewer, data, opts) {
   };
   let created = false;
   const timers = [];
+  const groups = new Map(); // key -> items added with setGroup
+  const removeGroup = (key) => {
+    const group = groups.get(key);
+    if (!group) return;
+    for (const it of group) {
+      if (it.label) labels.remove(it.label);
+      if (it.dot && it.dot !== true) dots.remove(it.dot);
+    }
+    const gone = new Set(group);
+    for (let i = items.length - 1; i >= 0; i--) if (gone.has(items[i])) items.splice(i, 1);
+    groups.delete(key);
+  };
 
   // Re-place names at most once per frame while the camera moves.
   let raf = 0;
@@ -236,6 +259,43 @@ export function createWorldLabels(viewer, data, opts) {
       schedule();
     },
     refresh: update,
+    /**
+     * Names that come and go with the view (towns, villages, buildings, streets), added as a group
+     * per map tile. They take part in the same placement, so they never overlap the world names.
+     * list: [{ lng, lat, text, px, weight, italic, color, dot, dotColor, dotSize, prio, near, far }]
+     */
+    setGroup(key, list) {
+      removeGroup(key);
+      const group = [];
+      for (const d of list) {
+        const px = d.px * sp;
+        const it = {
+          position: Cartesian3.fromDegrees(d.lng, d.lat, 0),
+          text: d.text,
+          px,
+          font: font(d.weight || 400, px, d.italic),
+          color: d.color ? toColor(d.color) : WHITE,
+          near: d.near || 0,
+          far: d.far,
+          prio: d.prio,
+          dot: d.dot ? true : undefined,
+          dotColor: d.dotColor ? toColor(d.dotColor) : WHITE,
+          dotSize: d.dotSize || 4,
+          group: key,
+          label: null,
+        };
+        group.push(it);
+        items.push(it);
+      }
+      groups.set(key, group);
+      items.sort((a, b) => a.prio - b.prio);
+      schedule();
+    },
+    /** Keep only these groups (drops the names of tiles no longer in view). */
+    keepGroups(keys) {
+      for (const k of [...groups.keys()]) if (!keys.has(k)) removeGroup(k);
+      schedule();
+    },
     destroy() {
       cancelAnimationFrame(raf);
       timers.forEach(clearTimeout);

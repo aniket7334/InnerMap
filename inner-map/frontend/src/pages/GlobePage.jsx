@@ -51,6 +51,7 @@ import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE } from '../maps/providers';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
+import { createLocalLabels } from '../globe/localLabels';
 import { createPhotoMarkers, fetchPlacePhotos, loadWorldPhotos, mergePhotos, searchKey, viewRadiusKm, worldPhotosInView, PHOTOS_MAX_HEIGHT } from '../globe/placePhotos';
 import PhotoGallery, { PhotoStrip } from '../components/EarthPhotos';
 import EarthSettings, { detailPreset } from '../components/EarthSettings';
@@ -599,6 +600,12 @@ export default function GlobePage() {
   // Countries, states, cities, seas (Natural Earth, served by the app - works offline).
   const [worldNames, setWorldNames] = useState(null);
   const worldLabelsRef = useRef(null);
+  const localLabelsRef = useRef(null);
+  // read by the local-names loader without re-creating it
+  const onlineRef = useRef(online);
+  onlineRef.current = online;
+  const serverNamesRef = useRef(false); // the server's street-data layer draws its own local names
+  serverNamesRef.current = !!VECTOR && mapStyle !== 'clean';
   // Hidden in "Clean", and in "Map" while the online OpenStreetMap map (which has its own names) shows.
   const showWorldNames = mapStyle === 'labels' || (mapStyle === 'map' && !online);
   useEffect(() => {
@@ -622,14 +629,27 @@ export default function GlobePage() {
     layer.setVisible(showWorldNames);
     worldLabelsRef.current = layer;
     window.__innerMapWorldLabels = layer; // diagnostics
+    // Towns, villages, neighbourhoods, buildings and streets as you zoom in.
+    const local = createLocalLabels(viewer, layer, {
+      isOnline: () => onlineRef.current,
+      skip: (lat, lng) => serverNamesRef.current && detailAreas.some((b) => lat >= b.south && lat <= b.north && lng >= b.west && lng <= b.east),
+    });
+    local.setEnabled(showWorldNames);
+    localLabelsRef.current = local;
     return () => {
+      local.destroy();
+      localLabelsRef.current = null;
       layer.destroy();
       worldLabelsRef.current = null;
     };
   }, [ready, worldNames, mapLabelKey, detailAreas]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     worldLabelsRef.current?.setVisible(showWorldNames);
+    localLabelsRef.current?.setEnabled(showWorldNames);
   }, [showWorldNames]);
+  useEffect(() => {
+    localLabelsRef.current?.refresh(); // switch between online (OpenStreetMap) and offline (GeoNames) names
+  }, [online]);
 
   // ------------------------------------------------------------ photos of famous places
   // A satellite-view layer (hidden in the "Map" style). Online only; nothing is stored.
@@ -1380,6 +1400,9 @@ export default function GlobePage() {
               </li>
               <li>
                 <strong>Roads and names:</strong> © OpenStreetMap contributors · Protomaps, from the Inner Map server or your downloaded areas.
+              </li>
+              <li>
+                <strong>Towns, villages, buildings and streets:</strong> OpenStreetMap names (© OpenMapTiles © OpenStreetMap contributors, via OpenFreeMap) as you zoom in, online. Offline: towns and villages from GeoNames (CC BY 4.0) for the areas you have viewed.
               </li>
               <li>
                 <strong>Photos:</strong> famous places from Wikidata, photos from Wikimedia Commons (each credited with its author and licence). Online only - only the centre of your view is sent to Wikidata to find them.

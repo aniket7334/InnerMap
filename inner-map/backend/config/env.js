@@ -32,6 +32,8 @@ module.exports = {
   tilesDir: path.resolve(__dirname, '..', process.env.TILES_DIR || 'tiles'),
   // Local PMTiles archive with OpenStreetMap vector data (see backend/data/README.md).
   vectorTilesFile: path.resolve(__dirname, '..', process.env.VECTOR_TILES_FILE || 'data/mumbai.pmtiles'),
+  // Extra areas (other cities) extracted on request; one .pmtiles file each.
+  vectorAreasDir: path.resolve(__dirname, '..', process.env.VECTOR_AREAS_DIR || 'data/areas'),
   // Optional local imagery/terrain for the 3D globe (see backend/globe-data/README.md).
   globeDataDir: path.resolve(__dirname, '..', process.env.GLOBE_DATA_DIR || 'globe-data'),
   // Road graph for offline + local routing (built by scripts/build-routing-graph.mjs).

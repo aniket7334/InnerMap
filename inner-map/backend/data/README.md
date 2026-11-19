@@ -71,3 +71,22 @@ in `backend/.env`.
 To serve a different area, extract it to another file and set `VECTOR_TILES_FILE` in
 `backend/.env` (for example `VECTOR_TILES_FILE=data/pune.pmtiles`), then restart the backend.
 Users can download, for offline use, any part of the area covered by this file.
+
+## More cities (offline map areas)
+
+Besides the main file, the server serves every extra area in `data/areas/*.pmtiles`
+(listed in `data/areas/areas.json`; not committed to git). There are two ways to add one:
+
+- **In the app:** on the Download page, select a city outside the existing areas and press
+  **Prepare map data for this area**. The server copies that city's tiles out of the latest
+  Protomaps daily build (the same as `pmtiles extract`, written in JavaScript in
+  `services/areaExtractService.js`), then the area can be downloaded to devices like Mumbai.
+  Limits: signed-in users, one area at a time, at most 1° (≈110 km) across.
+- **From the command line:**
+
+  ```bash
+  node scripts/extract-area.js --name="Pune" --bbox=73.75,18.45,73.98,18.62
+  ```
+
+A city usually takes 10-60 seconds and 5-40 MB. New areas are picked up without a restart.
+Offline **directions** still need a road graph per city (section 3 above).

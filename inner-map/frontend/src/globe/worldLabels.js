@@ -63,9 +63,9 @@ function inside(b, lat, lng) {
 
 /**
  * Adds the world names to a Cesium viewer.
- * @param opts { family, scalePlaces, scaleCities, bold, detailBounds, avoid }
+ * @param opts { family, scalePlaces, scaleCities, bold, detailAreas, avoid }
  *   avoid: CSS selector of buttons/panels floating over the globe that names must not cover
- *   detailBounds: where the OpenStreetMap layer shows its own names (cities there give way when close)
+ *   detailAreas: [bounds] where the OpenStreetMap layer shows its own names (cities there give way when close)
  * @returns { count, setVisible(bool), refresh(), shown(), destroy() }
  */
 export function createWorldLabels(viewer, data, opts) {
@@ -100,7 +100,7 @@ export function createWorldLabels(viewer, data, opts) {
     const px = (capital || rank <= 2 ? 14 : 13) * sc;
     push(lng, lat, name, {
       // Where the OpenStreetMap layer has its own names, hand over to it when zoomed in.
-      near: opts.detailBounds && inside(opts.detailBounds, lat, lng) ? 60 * KM : 0,
+      near: opts.detailAreas?.some((b) => inside(b, lat, lng)) ? 60 * KM : 0,
       far: cityFar(rank),
       px,
       font: font(capital || rank <= 1 ? 600 : 500, px),

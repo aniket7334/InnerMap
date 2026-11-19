@@ -366,6 +366,7 @@ export default function MapPage() {
         showLocateButton={false}
         onReady={(m) => (mapRef.current = m)}
         onClick={onMapClick}
+        onDownloadArea={downloadView}
       >
         {/* top-left: add a place, directions */}
         {nav && (

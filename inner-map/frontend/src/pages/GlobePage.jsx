@@ -41,7 +41,7 @@ import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
-import { PROVIDERS, SATELLITE_SOURCE } from '../maps/providers';
+import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE } from '../maps/providers';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
 import { labelFont } from '../typography/typographyConfig';
 import { VectorImageryProvider } from '../globe/VectorImageryProvider';
@@ -193,10 +193,15 @@ export default function GlobePage() {
   const serverReachable = status === 'online';
 
   const vectorRegions = useMemo(() => regions.filter((r) => r.layerId === VECTOR?.layerId && r.doneCount > 0), [regions]);
-  const detailBounds = useMemo(
-    () => (coverage?.available ? coverage.bounds : unionBounds(vectorRegions.map((r) => r.bounds))),
+  // Every area with street data: the server's cities, else this device's downloads.
+  const detailAreas = useMemo(
+    () =>
+      coverage?.available
+        ? (coverage.areas?.length ? coverage.areas.map((a) => a.bounds) : [coverage.bounds])
+        : vectorRegions.map((r) => r.bounds),
     [coverage, vectorRegions]
   );
+  const detailBounds = useMemo(() => (detailAreas.length ? unionBounds(detailAreas) : null), [detailAreas]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -422,13 +427,28 @@ export default function GlobePage() {
       );
     }
     if (layer) viewer.imageryLayers.add(layer, 1);
+    // Close up and online: sharp imagery over Sentinel-2 (online viewing only, never stored).
+    let sharp = null;
+    if (effectiveBase === 'satellite' && online && HIRES_IMAGERY_SOURCE) {
+      const h = HIRES_IMAGERY_SOURCE;
+      sharp = new ImageryLayer(
+        new UrlTemplateImageryProvider({
+          url: h.url,
+          maximumLevel: h.maxDataZoom,
+          credit: new Credit(h.attribution, true),
+        }),
+        { minimumTerrainLevel: h.minZoom - 1 }
+      );
+      viewer.imageryLayers.add(sharp, 2);
+    }
     baseLayerRef.current = layer;
     viewer.scene.requestRender();
     return () => {
+      if (sharp && !viewer.isDestroyed()) viewer.imageryLayers.remove(sharp, true);
       if (layer && !viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
       baseLayerRef.current = null;
     };
-  }, [ready, effectiveBase, globeData.imagery, status]);
+  }, [ready, effectiveBase, globeData.imagery, status, online]);
 
   // ------------------------------------------------------------ street map for the whole world
   // "Map" style: the server's street data covers only its own area (e.g. Mumbai), so with
@@ -483,7 +503,7 @@ export default function GlobePage() {
       scalePlaces: t.mapLabels.scale.places,
       scaleCities: t.mapLabels.scale.cities,
       bold: t.mapLabels.weight === 'bold',
-      detailBounds,
+      detailAreas,
       avoid: '.earth-controls, .earth-style, .earth-status',
     });
     layer.setVisible(showWorldNames);
@@ -493,7 +513,7 @@ export default function GlobePage() {
       layer.destroy();
       worldLabelsRef.current = null;
     };
-  }, [ready, worldNames, mapLabelKey, detailBounds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [ready, worldNames, mapLabelKey, detailAreas]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     worldLabelsRef.current?.setVisible(showWorldNames);
   }, [showWorldNames]);
@@ -921,6 +941,7 @@ export default function GlobePage() {
               <p className="muted tiny">
                 {SATELLITE_SOURCE.resolution ? `${SATELLITE_SOURCE.resolution}. ` : ''}
                 {online ? 'Downloaded satellite packs are used first.' : 'Offline: only areas with a downloaded satellite pack; elsewhere Natural Earth.'}{' '}
+                {online && HIRES_IMAGERY_SOURCE ? `Close up: sharp ${HIRES_IMAGERY_SOURCE.label} (online only). ` : ''}
                 {SATELLITE_SOURCE.licenceNote}
               </p>
             )}
@@ -1026,6 +1047,7 @@ export default function GlobePage() {
               </li>
               <li>
                 <strong>Satellite:</strong> {SATELLITE_SOURCE.label} ({SATELLITE_SOURCE.resolution || 'imagery'}). {SATELLITE_SOURCE.licenceNote}
+                {HIRES_IMAGERY_SOURCE && ` Close up and online: ${HIRES_IMAGERY_SOURCE.label} (about 0.3-1 m per pixel in cities; online viewing only, never stored).`}
               </li>
               <li>
                 <strong>Roads and names:</strong> © OpenStreetMap contributors · Protomaps, from the Inner Map server or your downloaded areas.

@@ -17,6 +17,8 @@ const BULK_FORBIDDEN_HOSTS = [
   'tile.osm.org',
   'openstreetmap.fr',
   'tile.opentopomap.org',
+  'arcgisonline.com',
+  'arcgis.com',
   'google.com',
   'googleapis.com',
   'gstatic.com',
@@ -155,6 +157,31 @@ export const SATELLITE_SOURCE = define({
     : `<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data ${SAT_YEAR})`,
   averageTileBytes: 14 * 1024,
 });
+
+// High-resolution imagery for close-up views (about 0.3-1 m per pixel in cities: single
+// buildings, cars and trees). Default: Esri World Imagery (Maxar, Earthstar Geographics and
+// others). ONLINE VIEWING ONLY - Esri's terms do not allow storing its tiles for offline use, so
+// it is never downloaded; offline the Sentinel-2 imagery (or a downloaded satellite pack) shows.
+// Set VITE_HIRES_IMAGERY_URL to another licensed service, or to "off" to disable.
+const hiresEnv = (env.VITE_HIRES_IMAGERY_URL || '').trim();
+export const HIRES_IMAGERY_SOURCE =
+  hiresEnv === 'off'
+    ? null
+    : define({
+        id: 'hires-imagery',
+        label: env.VITE_HIRES_IMAGERY_LABEL || 'Esri World Imagery',
+        kind: 'raster',
+        url: hiresEnv || 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        servedByApp: false,
+        minZoom: Number(env.VITE_HIRES_IMAGERY_MIN_ZOOM || 11), // Sentinel-2 below this zoom
+        maxZoom: 21,
+        maxDataZoom: Number(env.VITE_HIRES_IMAGERY_MAX_ZOOM || 19),
+        offlineAllowed: false,
+        offlineBlockedReason: 'High-resolution imagery may only be viewed online.',
+        attribution:
+          env.VITE_HIRES_IMAGERY_ATTRIBUTION ||
+          'Imagery: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+      });
 
 // Elevation for the Terrain view: AWS / Mapzen Terrain Tiles ("terrarium" PNG encoding,
 // elevation = R*256 + G + B/256 - 32768 m). Open data (SRTM, GMTED, ETOPO1, ...), may be stored

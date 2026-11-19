@@ -83,7 +83,19 @@ export class VectorImageryProvider {
     }
     const pad = 16;
     const bbox = { minX: TILE * x - pad, minY: TILE * y - pad, maxX: TILE * (x + 1) + pad, maxY: TILE * (y + 1) + pad };
-    paint(ctx, level, tiles, this._labelers.getIndex(level), this._paintRules, bbox, { x: TILE * x, y: TILE * y }, false, '');
+    const origin = { x: TILE * x, y: TILE * y };
+    if (this._labelsOnly) {
+      // Over imagery: faint road lines from afar, none close up (the photo shows the roads);
+      // names stay fully opaque.
+      if (level < 16) {
+        ctx.globalAlpha = level < 14 ? 0.45 : 0.25;
+        paint(ctx, level, tiles, null, this._paintRules, bbox, origin, false, '');
+        ctx.globalAlpha = 1;
+      }
+      paint(ctx, level, tiles, this._labelers.getIndex(level), [], bbox, origin, false, '');
+      return canvas;
+    }
+    paint(ctx, level, tiles, this._labelers.getIndex(level), this._paintRules, bbox, origin, false, '');
     return canvas;
   }
 }

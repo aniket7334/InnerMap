@@ -120,7 +120,9 @@ export function ProviderProvider({ children }) {
   );
 
   return (
-    <ProviderContext.Provider value={{ provider, providers: PROVIDERS, setProviderId, coverage, mapView, setMapView, poiFilter, setPoiFilter }}>
+    <ProviderContext.Provider
+      value={{ provider, providers: PROVIDERS, setProviderId, coverage, refreshCoverage: loadCoverage, mapView, setMapView, poiFilter, setPoiFilter }}
+    >
       {children}
     </ProviderContext.Provider>
   );

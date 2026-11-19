@@ -4,3 +4,4 @@ node_modules
 data/*.pmtiles
 data/*.routing.json.gz
 data/.osm-cache/
+data/areas/

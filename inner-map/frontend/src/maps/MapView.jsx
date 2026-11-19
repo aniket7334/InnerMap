@@ -13,7 +13,7 @@ import { useAuth } from '../hooks/AuthContext';
 import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { formatCoord, describeGeometry, WORLD_VIEW } from './geo';
-import { SATELLITE_SOURCE, TERRAIN_SOURCE, getProvider } from './providers';
+import { SATELLITE_SOURCE, TERRAIN_SOURCE, HIRES_IMAGERY_SOURCE, getProvider } from './providers';
 import { HillshadeLayer, elevationAt } from './HillshadeLayer';
 import { createLabelsOverlay, createTransitOverlay, TRANSIT_LEGEND } from './viewOverlays';
 import { formatLength, measureStats } from '../components/MeasurePanel';
@@ -149,6 +149,7 @@ function ViewInfo({ view }) {
       SATELLITE_SOURCE.imageryDate && `Imagery: ${SATELLITE_SOURCE.imageryDate}`,
       SATELLITE_SOURCE.resolution && `Resolution: ${SATELLITE_SOURCE.resolution}`,
       SATELLITE_SOURCE.licenceNote && `Licence: ${SATELLITE_SOURCE.licenceNote}`,
+      HIRES_IMAGERY_SOURCE && `Close up (zoom ${HIRES_IMAGERY_SOURCE.minZoom}+), when online: ${HIRES_IMAGERY_SOURCE.label}, sharp enough to see single buildings. Online viewing only - it cannot be downloaded; offline the imagery above is shown.`,
       'Labels: OpenStreetMap (Inner Map vector data).',
     ].filter(Boolean);
   } else if (view === 'terrain') {
@@ -210,6 +211,7 @@ export default function MapView({
   endpoints = null, // { start: {lat,lng}, end: {lat,lng} } - route start/destination markers
   onReady,
   onClick,
+  onDownloadArea = null, // "Download this area" in the online-only notice
   showCoordinates = true,
   showLocateButton = true,
   interactive = true,
@@ -266,9 +268,14 @@ export default function MapView({
   // The Inner Map server's street data covers only the area in its PMTiles file (e.g. Mumbai).
   // With internet, the rest of the world is filled with the standard OpenStreetMap map
   // (online viewing only - never downloaded or stored). Offline nothing changes.
-  const worldFill = provider.kind === 'vector' && status !== 'offline' && !!coverage?.bounds;
-  const coverageKey = coverage?.bounds ? Object.values(coverage.bounds).join(',') : '';
-  const refreshKey = `${satellite ? 'sat' : provider.id}|${reachable}|${worldFill}|${coverageKey}|${poiFilter.join(',')}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
+  const dataAreas = useMemo(
+    () => (coverage?.areas?.length ? coverage.areas : coverage?.bounds ? [{ id: 'server', name: 'the server area', bounds: coverage.bounds }] : []),
+    [coverage]
+  );
+  const worldFill = provider.kind === 'vector' && status !== 'offline' && dataAreas.length > 0;
+  const coverageKey = dataAreas.map((a) => Object.values(a.bounds).join(',')).join(';');
+  const hires = satellite && !!HIRES_IMAGERY_SOURCE && status !== 'offline';
+  const refreshKey = `${satellite ? 'sat' : provider.id}|${hires}|${reachable}|${worldFill}|${coverageKey}|${poiFilter.join(',')}|${provider.kind === 'vector' ? mapLabelKey : ''}|${storedRegions
     .filter((r) => r.status !== 'downloading')
     .map((r) => `${r.id}:${r.status}`)
     .join(',')}`;
@@ -316,7 +323,9 @@ export default function MapView({
     map.on('mouseout', () => setCursor(null));
     // Named feature (business, landmark, place, street) under a click, from the vector data.
     const queryAt = (latlng) => {
-      const layer = vectorLayerRef.current;
+      // the layer of the area under the click (one per city when the server has several)
+      const candidates = [].concat(vectorLayerRef.current || []);
+      const layer = candidates.find((l) => !l.options?.bounds || l.options.bounds.contains?.(latlng)) || candidates[0];
       if (!layer?.queryTileFeaturesDebug) return null;
       let found;
       try {
@@ -362,12 +371,24 @@ export default function MapView({
       // Imagery + place/road labels from the vector data ("hybrid").
       const imagery = createOfflineTileLayer(SATELLITE_SOURCE).addTo(map);
       imagery.bringToBack();
+      // Sharp close-up imagery on top when online (online viewing only, never stored).
+      const sharp = hires
+        ? L.tileLayer(HIRES_IMAGERY_SOURCE.url, {
+            minZoom: HIRES_IMAGERY_SOURCE.minZoom,
+            maxZoom: HIRES_IMAGERY_SOURCE.maxZoom,
+            maxNativeZoom: HIRES_IMAGERY_SOURCE.maxDataZoom,
+            attribution: HIRES_IMAGERY_SOURCE.attribution,
+            crossOrigin: true,
+          }).addTo(map)
+        : null;
+      sharp?.setZIndex(2);
       const labels = createLabelsOverlay(VECTOR, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
       labels.setZIndex(5);
       baseLayerRef.current = imagery;
       vectorLayerRef.current = labels;
       return () => {
         map.removeLayer(imagery);
+        if (sharp) map.removeLayer(sharp);
         map.removeLayer(labels);
         baseLayerRef.current = null;
         vectorLayerRef.current = null;
@@ -378,25 +399,28 @@ export default function MapView({
     if (worldFill) {
       fill = createOfflineTileLayer(WORLD_FILL).addTo(map);
       fill.setZIndex(0);
-      const b = coverage.bounds;
-      // Our data on top, only where the server has it, and from the zoom where its tiles
-      // are smaller than the data area (so no patchwork at country level).
-      layer = createVectorTileLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }, {
-        bounds: L.latLngBounds([b.south, b.west], [b.north, b.east]),
-        minZoom: FILL_DETAIL_ZOOM,
-      }).addTo(map);
-      layer.setZIndex(1);
+      // Our data on top, only inside each area the server has (one layer per city), and from
+      // the zoom where its tiles are smaller than the area (so no patchwork at country level).
+      layer = dataAreas.map(({ bounds: b }) => {
+        const l = createVectorTileLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }, {
+          bounds: L.latLngBounds([b.south, b.west], [b.north, b.east]),
+          minZoom: FILL_DETAIL_ZOOM,
+        }).addTo(map);
+        l.setZIndex(1);
+        return l;
+      });
     } else {
       layer = createBaseLayer(provider, typographyRef.current, { poiFilter: poiFilterRef.current }).addTo(map);
       layer.bringToBack();
     }
-    baseLayerRef.current = layer;
+    const layers = [].concat(layer);
+    baseLayerRef.current = layers.length === 1 ? layers[0] : { setOpacity: (o) => layers.forEach((l) => l.setOpacity?.(o)) };
     fillLayerRef.current = fill;
-    vectorLayerRef.current = provider.kind === 'vector' ? layer : null;
+    vectorLayerRef.current = provider.kind === 'vector' ? layers : null;
     return () => {
       if (fill) map.removeLayer(fill);
       fillLayerRef.current = null;
-      map.removeLayer(layer);
+      layers.forEach((l) => map.removeLayer(l));
       baseLayerRef.current = null;
       vectorLayerRef.current = null;
     };
@@ -516,12 +540,12 @@ export default function MapView({
       if (coverage.available === false) {
         return { id: 'no-file', text: 'The server has no vector map file yet. See backend/data/README.md.' };
       }
-      if (coverage.bounds && zoom >= 6 && !boundsIntersect(coverage.bounds, viewBounds)) {
+      if (coverage.bounds && zoom >= 6 && !dataAreas.some((a) => boundsIntersect(a.bounds, viewBounds))) {
         if (worldFill) {
           return {
             id: 'online-fill',
-            text: `Online map (OpenStreetMap): needs internet here and can't be saved for offline use. Offline map data covers ${describeBounds(coverage.bounds)}.`,
-            action: { label: 'Show offline area', bounds: coverage.bounds },
+            text: `Online map (OpenStreetMap): needs internet. To use this place offline, download it - the server first prepares its map data. Offline areas now: ${dataAreas.map((a) => a.name).join(', ')}.`,
+            action: onDownloadArea ? { label: 'Download this area', download: true } : null,
           };
         }
         return {
@@ -532,7 +556,7 @@ export default function MapView({
       }
     }
     return null;
-  }, [viewBounds, reachable, provider, storedRegions, coverage, zoom, worldFill]);
+  }, [viewBounds, reachable, provider, storedRegions, coverage, zoom, worldFill, dataAreas]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fitBounds = (b) =>
     mapRef.current?.fitBounds(
@@ -793,7 +817,7 @@ export default function MapView({
         <div className="map-notice" role="status">
           <span>{notice.text}</span>
           {notice.action && (
-            <button type="button" className="link-btn" onClick={() => fitBounds(notice.action.bounds)}>
+            <button type="button" className="link-btn" onClick={() => (notice.action.download ? onDownloadArea?.() : fitBounds(notice.action.bounds))}>
               {notice.action.label}
             </button>
           )}

@@ -1229,3 +1229,33 @@ a {
     transition: none;
   }
 }
+
+/* Download page: preparing map data for a new city, and the list of server areas */
+.prep-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+  padding: 12px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.06));
+}
+.prep-box p {
+  margin: 0;
+}
+.prep-box .btn {
+  align-self: flex-start;
+}
+.success-text {
+  color: var(--success);
+}
+.area-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.area-chips .btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}

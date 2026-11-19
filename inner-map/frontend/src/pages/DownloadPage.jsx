@@ -15,6 +15,11 @@ import { estimateDownload, startDownload, cancelDownload, pauseDownload, estimat
 import { formatBytes, getStorageEstimate } from '../offline/storage';
 import { searchPlaces } from '../services/geocodeService';
 import { fetchRoutingInfo } from '../services/routingApi';
+import { requestMapArea, fetchMapAreaJob, MAX_AREA_SPAN_DEG } from '../services/mapAreaApi';
+import { errorMessage } from '../services/api';
+
+const boundsContain = (outer, inner) =>
+  inner.west >= outer.west && inner.east <= outer.east && inner.south >= outer.south && inner.north <= outer.north;
 
 const MODES = [
   { id: 'coverage', label: 'Data area', vectorOnly: true },
@@ -45,7 +50,7 @@ export default function DownloadPage() {
   const { user } = useAuth();
   const { status } = useConnectivity();
   const { position, locateOnce } = useLocation();
-  const { provider, providers, setProviderId, coverage } = useMapProvider();
+  const { provider, providers, setProviderId, coverage, refreshCoverage } = useMapProvider();
   const { regions } = useRegions(user.id);
   const [params] = useSearchParams();
 
@@ -117,10 +122,55 @@ export default function DownloadPage() {
   const activePack = Object.entries(job?.packs || {}).find(([, p]) => p.status === 'downloading');
   const busy = job?.status === 'downloading' || Boolean(activePack);
 
-  // Vector data only exists inside the server's PMTiles area: download just that overlap.
-  const target = selection && serverArea ? boundsIntersection(selection, serverArea) : selection;
-  const outsideServerArea = Boolean(selection && serverArea && !target);
+  // Vector data only exists inside the areas (cities) the server has. A selection inside one is
+  // downloaded whole; otherwise the server can prepare that area first, or just the overlap
+  // with an existing area is downloaded.
+  const dataAreas = useMemo(
+    () => (isVector && coverage?.available ? (coverage.areas?.length ? coverage.areas : [{ id: 'server', name: 'Server area', bounds: coverage.bounds }]) : []),
+    [isVector, coverage]
+  );
+  const containing = selection ? dataAreas.find((a) => boundsContain(a.bounds, selection)) : null;
+  const overlap = useMemo(() => {
+    if (!selection || containing) return null;
+    const parts = dataAreas.map((a) => boundsIntersection(selection, a.bounds)).filter(Boolean);
+    return parts.sort((a, b) => boundsAreaKm2(b) - boundsAreaKm2(a))[0] || null;
+  }, [selection, containing, dataAreas]);
+  const target = !isVector || !dataAreas.length ? selection : containing ? selection : overlap;
+  const needsPrep = Boolean(isVector && dataAreas.length && selection && !containing);
+  const prepTooBig = Boolean(selection && (selection.east - selection.west > MAX_AREA_SPAN_DEG || selection.north - selection.south > MAX_AREA_SPAN_DEG));
+  const outsideServerArea = Boolean(selection && dataAreas.length && !target);
   const clipped = Boolean(target && selection && !sameBounds(target, selection));
+
+  // Preparing map data on the server for a new area.
+  const [prep, setPrep] = useState(null); // job from the server
+  const prepRunning = prep && (prep.status === 'queued' || prep.status === 'running');
+  useEffect(() => {
+    if (!prepRunning) return undefined;
+    const t = setInterval(async () => {
+      try {
+        const j = await fetchMapAreaJob(prep.id);
+        setPrep(j);
+        if (j.status === 'done') await refreshCoverage();
+      } catch (err) {
+        setPrep((p) => ({ ...p, status: 'failed', error: errorMessage(err, 'Lost contact with the server.') }));
+      }
+    }, 1500);
+    return () => clearInterval(t);
+  }, [prepRunning, prep?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const prepareArea = async () => {
+    setError(null);
+    try {
+      const out = await requestMapArea(name.trim() || 'Map area', selection);
+      if (out.existing) {
+        await refreshCoverage();
+        return;
+      }
+      setPrep(out.job);
+    } catch (err) {
+      setError(errorMessage(err, 'Could not start preparing this area.'));
+    }
+  };
   const effectiveMax = isVector ? provider.maxZoom : zoomMax;
 
   const estimate = useMemo(
@@ -153,13 +203,8 @@ export default function DownloadPage() {
     !tooBig &&
     !lowStorage &&
     !busy &&
+    !prepRunning &&
     zoomMin <= effectiveMax;
-
-  const useServerArea = () => {
-    if (!serverArea) return;
-    setSelection(serverArea);
-    setFitTo({ ...serverArea });
-  };
 
   const useCurrentView = () => {
     if (!mapRef.current) return;
@@ -325,10 +370,22 @@ export default function DownloadPage() {
           <div className="tab-panel">
             {mode === 'coverage' && serverArea && (
               <>
-                <p className="muted small">Everything your Inner Map server has map data for.</p>
-                <button className="btn btn-ghost" onClick={useServerArea}>
-                  Select the server area
-                </button>
+                <p className="muted small">Areas your Inner Map server has offline map data for. For another city, use View or Search - the server can prepare it.</p>
+                <div className="area-chips">
+                  {dataAreas.map((a) => (
+                    <button
+                      key={a.id}
+                      className={`btn btn-ghost btn-sm ${selection && sameBounds(selection, a.bounds) ? 'active' : ''}`}
+                      onClick={() => {
+                        setSelection(a.bounds);
+                        setFitTo({ ...a.bounds });
+                        if (!name) setName(a.name);
+                      }}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
               </>
             )}
             {mode === 'view' && (
@@ -514,13 +571,44 @@ export default function DownloadPage() {
             )}
           </div>
           {zoomMin > effectiveMax && <p className="error-text small">Min zoom must not exceed max zoom.</p>}
-          {outsideServerArea && (
-            <p className="error-text small">
-              This area is outside what your Inner Map server has data for. Use “Data area” or select inside it.
-            </p>
+          {needsPrep && (
+            <div className="prep-box">
+              {prepRunning ? (
+                <>
+                  <strong className="small">Preparing map data for “{prep.name}” on the server…</strong>
+                  <ProgressBar value={Math.round((prep.progress || 0) * 100)} max={100} label="Preparing map data" />
+                  <span className="muted tiny">
+                    {prep.status === 'queued'
+                      ? 'Waiting for another area to finish.'
+                      : prep.phase === 'tiles'
+                        ? `Copying OpenStreetMap data… ${Math.round((prep.progress || 0) * 100)}%`
+                        : 'Finding the map data for this area…'}{' '}
+                    Usually under a minute for a city. You can stay on this page.
+                  </span>
+                </>
+              ) : (
+                <>
+                  <p className="small">
+                    {outsideServerArea
+                      ? 'The server has no offline map data for this area yet.'
+                      : 'Only part of this area has offline map data on the server.'}{' '}
+                    It can fetch this city’s OpenStreetMap data once - after that it can be downloaded and used offline like the others.
+                  </p>
+                  {prep?.status === 'failed' && <p className="error-text small">{prep.error}</p>}
+                  {prepTooBig ? (
+                    <p className="error-text small">Choose a smaller area first: one city at a time (at most about 110 km across).</p>
+                  ) : (
+                    <button className="btn btn-primary btn-sm" onClick={prepareArea} disabled={status !== 'online'}>
+                      <Icon name="download" size={14} /> Prepare map data for this area
+                    </button>
+                  )}
+                  {clipped && !outsideServerArea && <p className="muted tiny">Or download now: only the part inside an existing area is included.</p>}
+                </>
+              )}
+            </div>
           )}
-          {clipped && !outsideServerArea && (
-            <p className="muted small">Only the part inside the server’s data area will be downloaded.</p>
+          {prep?.status === 'done' && !needsPrep && (
+            <p className="success-text small">Map data for “{prep.name}” is ready on the server. You can download it now.</p>
           )}
           {lowStorage && <p className="error-text small">Not enough free browser storage for this selection. Untick a pack, choose a smaller area or delete other offline maps.</p>}
           {tooBig && (

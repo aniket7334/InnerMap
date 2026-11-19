@@ -36,12 +36,13 @@ const QUICK = [
 
 const SOURCE_BADGE = { offline: 'Offline', saved: 'Saved', online: 'Online', area: 'Offline map', layer: 'Layer', coords: 'Coordinates' };
 
-export default function SearchBox({ onNavigate, variant = 'bar' }) {
+export default function SearchBox({ onNavigate, onSelect, variant = 'bar' }) {
   const { user } = useAuth();
+  const uid = user?.id; // signed-out visitors (Earth start page) get online search only
   const { status } = useConnectivity();
   const { position } = useLocation();
-  const { locations, add } = useSavedLocations(user.id);
-  const { regions } = useRegions(user.id);
+  const { locations, add } = useSavedLocations(uid);
+  const { regions } = useRegions(uid);
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
@@ -70,7 +71,11 @@ export default function SearchBox({ onNavigate, variant = 'bar' }) {
     let alive = true;
     const load = async () => {
       const out = [];
-      for (const layer of await listLayers(user.id)) {
+      if (!uid) {
+        if (alive) setFeatures([]);
+        return;
+      }
+      for (const layer of await listLayers(uid)) {
         for (const f of await getLayerFeatures(layer.localId)) {
           if (f.name) out.push({ name: f.name, layer: layer.name, geometry: f.geometry });
         }
@@ -83,7 +88,7 @@ export default function SearchBox({ onNavigate, variant = 'bar' }) {
       alive = false;
       window.removeEventListener('innermap:features-changed', load);
     };
-  }, [user.id]);
+  }, [uid]);
 
   useEffect(() => {
     const close = (e) => boxRef.current && !boxRef.current.contains(e.target) && setOpen(false);
@@ -174,6 +179,10 @@ export default function SearchBox({ onNavigate, variant = 'bar' }) {
   const go = (row) => {
     setOpen(false);
     setQuery(row.name);
+    if (onSelect) {
+      onSelect(row);
+      return;
+    }
     const focus = row.bounds
       ? { type: 'bounds', bounds: row.bounds, label: row.name, point: row.lat != null ? { lat: row.lat, lng: row.lng } : null }
       : { type: 'point', lat: row.lat, lng: row.lng, label: row.name, zoom: row.zoom };
@@ -247,7 +256,7 @@ export default function SearchBox({ onNavigate, variant = 'bar' }) {
         type="text"
         inputMode="search"
         value={query}
-        placeholder={variant === 'map' ? 'Search places, streets or coordinates' : 'Search places, streets, businesses or coordinates'}
+        placeholder={variant === 'earth' ? 'Search InnerMap Earth' : variant === 'map' ? 'Search places, streets or coordinates' : 'Search places, streets, businesses or coordinates'}
         aria-label="Search places"
         role="combobox"
         aria-expanded={showPanel}
@@ -342,7 +351,7 @@ export default function SearchBox({ onNavigate, variant = 'bar' }) {
                     {r.distance != null && <span className="search-row-dist">{formatDistance(r.distance)}</span>}
                     <span className={`search-badge badge-${r.source}`}>{SOURCE_BADGE[r.source]}</span>
                   </div>
-                  {r.lat != null && r.source !== 'saved' && (
+                  {uid && r.lat != null && r.source !== 'saved' && (
                     <button
                       type="button"
                       className="search-save"

@@ -16,10 +16,13 @@ export class VectorImageryProvider {
    * @param provider  the 'local-vector' entry from maps/providers.js
    * @param bounds    { south, west, north, east } where data can exist (server coverage)
    * @param typography optional typography settings for label size/font (typography/mapLabels.js)
+   * @param style     'map' (full map, default) or 'labels' (roads + names only, transparent -
+   *                  for laying over satellite imagery)
    */
-  constructor(provider, bounds, typography) {
+  constructor(provider, bounds, typography, style = 'map') {
     const flavor = namedFlavor('light');
-    this._paintRules = paintRules(flavor);
+    this._labelsOnly = style === 'labels';
+    this._paintRules = this._labelsOnly ? paintRules(flavor).filter((r) => r.dataLayer === 'roads') : paintRules(flavor);
     this._background = flavor.background;
     // PmtilesSource parses the raw tile bytes our source returns (any object with getZxy works).
     // shouldCancelZooms=false: Cesium loads several zoom levels at once, unlike Leaflet.
@@ -74,8 +77,10 @@ export class VectorImageryProvider {
     const tiles = new Map([['', [prepared]]]);
     this._labelers.add(level, tiles);
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = this._background;
-    ctx.fillRect(0, 0, TILE, TILE);
+    if (!this._labelsOnly) {
+      ctx.fillStyle = this._background;
+      ctx.fillRect(0, 0, TILE, TILE);
+    }
     const pad = 16;
     const bbox = { minX: TILE * x - pad, minY: TILE * y - pad, maxX: TILE * (x + 1) + pad, maxY: TILE * (y + 1) + pad };
     paint(ctx, level, tiles, this._labelers.getIndex(level), this._paintRules, bbox, { x: TILE * x, y: TILE * y }, false, '');

@@ -35,8 +35,10 @@ export default function App() {
           <TypographyProvider>
           <BrowserRouter>
             <Routes>
+              {/* Start screen: the 3D Earth (full screen, for everyone; saving needs an account) */}
+              <Route path="/" element={<GlobeLoader />} />
               <Route element={<PublicLayout />}>
-                <Route path="/" element={<LandingPage />} />
+                <Route path="/welcome" element={<LandingPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/register" element={<RegisterPage />} />
               </Route>
@@ -53,11 +55,11 @@ export default function App() {
                 <Route path="/my-maps" element={<MyMapsPage />} />
                 <Route path="/saved" element={<SavedLocationsPage />} />
                 <Route path="/layers" element={<LayersPage />} />
-                <Route path="/globe" element={<GlobeLoader />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="/home" element={<Navigate to="/" replace />} />
+              <Route path="/globe" element={<Navigate to="/" replace />} />
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
             <ConfirmHost />

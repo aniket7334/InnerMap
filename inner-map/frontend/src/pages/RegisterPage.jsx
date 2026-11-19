@@ -24,7 +24,7 @@ export default function RegisterPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated) return <Navigate to="/" replace />;
 
   const errors = validate(form);
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -38,7 +38,7 @@ export default function RegisterPage() {
     setBusy(true);
     try {
       await register({ name: form.name.trim(), email: form.email.trim(), password: form.password });
-      navigate('/dashboard', { replace: true });
+      navigate('/', { replace: true });
     } catch (err) {
       setError(errorMessage(err, 'Registration failed'));
     } finally {

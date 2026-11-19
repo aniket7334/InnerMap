@@ -20,16 +20,16 @@ class GlobeErrorBoundary extends Component {
     if (!this.state.error) return this.props.children;
     const offline = !navigator.onLine || /fetch|import|load/i.test(this.state.error.message || '');
     return (
-      <div className="page narrow">
+      <div className="earth-fallback">
         <div className="card">
-          <h1>3D globe unavailable</h1>
+          <h1>Earth view unavailable</h1>
           {offline ? (
             <p>
-              The 3D globe has not been stored on this device yet. Open it once while connected and choose{' '}
-              <strong>Make 3D globe available offline</strong>. The 2D map works offline already.
+              The Earth view's files are not stored on this device yet. Open it once while connected - they are kept
+              automatically. The 2D map works offline already.
             </p>
           ) : (
-            <p>The 3D globe failed to load: {this.state.error.message}</p>
+            <p>The Earth view failed to load: {this.state.error.message}</p>
           )}
           <div className="row">
             <button className="btn btn-primary" onClick={() => window.location.reload()}>
@@ -50,8 +50,9 @@ export default function GlobeLoader() {
     <GlobeErrorBoundary>
       <Suspense
         fallback={
-          <div className="page">
-            <p className="muted">Loading the 3D globe...</p>
+          <div className="earth-fallback earth-loading">
+            <img src="/icons/icon.svg" alt="" width="48" height="48" />
+            <p>Loading InnerMap Earth…</p>
           </div>
         }
       >

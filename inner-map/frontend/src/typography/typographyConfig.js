@@ -80,7 +80,7 @@ export const LABEL_MAX = 2;
 
 export const DEFAULT_TYPOGRAPHY = Object.freeze({
   version: 1,
-  fontFamily: 'inter', // the redesign's typeface (bundled, works offline); users can change it in Settings
+  fontFamily: 'roboto', // Earth-style typeface (bundled, works offline); users can change it in Settings
   sizePreset: 'md',
   customSize: 16,
   fontWeight: 'regular',

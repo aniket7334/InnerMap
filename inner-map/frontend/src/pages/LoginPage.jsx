@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  if (isAuthenticated) return <Navigate to="/" replace />;
 
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
@@ -24,7 +24,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await login(form);
-      navigate(location.state?.from || '/dashboard', { replace: true });
+      navigate(location.state?.from || '/', { replace: true });
     } catch (err) {
       setError(errorMessage(err, 'Login failed'));
     } finally {

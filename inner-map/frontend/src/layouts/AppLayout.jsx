@@ -52,7 +52,7 @@ const WORKSPACE = [
   { to: '/map', label: 'Map explorer', icon: 'map', end: true },
   { to: '/map', label: 'Route planner', icon: 'route2', state: { openDirections: true }, route: true },
   { to: '/download', label: 'Download area', icon: 'download' },
-  { to: '/globe', label: '3D globe', icon: 'globe' },
+  { to: '/', label: 'Earth', icon: 'globe', end: true },
 ];
 const LIBRARY = [
   { to: '/saved', label: 'Saved places', icon: 'pin' },
@@ -65,7 +65,6 @@ const SECONDARY = [{ to: '/settings', label: 'Settings', icon: 'settings' }];
 const PAGE_TITLE = {
   '/map': ['Workspace', 'Map explorer'],
   '/download': ['Workspace', 'Download area'],
-  '/globe': ['Workspace', '3D globe'],
   '/saved': ['Your library', 'Saved places'],
   '/my-maps': ['Your library', 'Offline maps'],
   '/dashboard': ['Your library', 'Overview'],
@@ -189,7 +188,7 @@ export default function AppLayout() {
   return (
     <div className={`shell ${collapsed ? 'sidebar-collapsed' : ''} ${isMapPage ? 'shell-map' : ''}`}>
       <aside className="sidebar" aria-label="Navigation">
-        <NavLink to="/map" className="sidebar-brand" aria-label="Inner Map home">
+        <NavLink to="/" className="sidebar-brand" aria-label="InnerMap Earth">
           <img src="/icons/icon.svg" alt="" width="28" height="28" />
           <span>
             Inner<strong>Map</strong>

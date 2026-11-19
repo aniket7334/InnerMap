@@ -219,6 +219,10 @@ export default function MapPage() {
       setMeasure(null);
       setRouteOpen(true);
     }
+    if (routerLocation.state?.openMeasure) {
+      setRouteOpen(false);
+      setMeasure({ mode: 'distance', points: [], unit: 'auto' });
+    }
   }, [routerLocation.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Download page, pre-filled with the area currently on screen.

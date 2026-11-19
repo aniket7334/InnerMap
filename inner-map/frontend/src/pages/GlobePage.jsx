@@ -47,6 +47,7 @@ import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
 import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
+import EarthSplash from '../components/EarthSplash';
 import Icon from '../components/Icon';
 import { formatBytes } from '../offline/storage';
 import { confirmDialog } from '../components/ConfirmDialog';
@@ -162,6 +163,9 @@ export default function GlobePage() {
   const userEntitiesRef = useRef(null);
   const baseLayerRef = useRef(null);
   const introDone = useRef(false);
+  // Loading screen: 'show' until the first imagery is on screen, then 'leaving' (fade + fly-in), then 'gone'.
+  const [splash, setSplash] = useState('show');
+  const splashShownAt = useRef(Date.now());
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
@@ -307,15 +311,62 @@ export default function GlobePage() {
     };
   }, []);
 
-  // Opening view: the whole planet, gently flying in over your area (GPS) or South Asia.
+  // Opening view: start far out over your area (GPS) or South Asia, so the first imagery loaded
+  // behind the loading screen is the right one.
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!ready || !viewer || introDone.current) return;
     introDone.current = true;
     const target = position || START;
     viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, 36000000) });
-    viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(target.lng, target.lat, 14500000), duration: 2.4 });
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hide the loading screen once the first imagery has loaded (at most 10 s; at least ~1 s so it
+  // does not flash). If the 3D view cannot start, hide it at once so the error is visible.
+  useEffect(() => {
+    if (error) setSplash('gone');
+  }, [error]);
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer) return undefined;
+    let done = false;
+    let sawLoading = false;
+    const timers = [];
+    const finish = () => {
+      if (done) return;
+      done = true;
+      const wait = Math.max(0, 1000 - (Date.now() - splashShownAt.current));
+      timers.push(setTimeout(() => setSplash((s) => (s === 'show' ? 'leaving' : s)), wait));
+    };
+    const check = () => {
+      if (viewer.isDestroyed()) return;
+      viewer.scene.requestRender();
+      if (sawLoading && viewer.scene.globe.tilesLoaded) finish();
+    };
+    const stop = viewer.scene.globe.tileLoadProgressEvent.addEventListener((queued) => {
+      if (queued > 0) sawLoading = true;
+      else timers.push(setTimeout(check, 80));
+    });
+    const poll = setInterval(check, 400);
+    timers.push(setTimeout(finish, 10000));
+    return () => {
+      stop();
+      clearInterval(poll);
+      timers.forEach(clearTimeout);
+    };
+  }, [ready]);
+
+  // As the loading screen fades, fly in towards the Earth; then remove it.
+  useEffect(() => {
+    if (splash !== 'leaving') return undefined;
+    const viewer = viewerRef.current;
+    if (viewer && !viewer.isDestroyed()) {
+      const target = position || START;
+      viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(target.lng, target.lat, 14500000), duration: 2.4 });
+    }
+    const t = setTimeout(() => setSplash('gone'), 650);
+    return () => clearTimeout(t);
+  }, [splash]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------ local datasets
   useEffect(() => {
@@ -649,6 +700,7 @@ export default function GlobePage() {
 
   return (
     <div className="earth" ref={pageRef}>
+      {splash !== 'gone' && <EarthSplash leaving={splash === 'leaving'} />}
       <header className="earth-header">
         <div className="earth-menubar">
           <Link to="/" className="earth-logo" aria-label="InnerMap Earth">

@@ -3,6 +3,7 @@
 // device yet and there is no connection, explain instead of showing a blank page.
 import { Component, Suspense, lazy } from 'react';
 import { Link } from 'react-router-dom';
+import EarthSplash from './EarthSplash';
 
 const GlobePage = lazy(() => import('../pages/GlobePage'));
 
@@ -50,10 +51,7 @@ export default function GlobeLoader() {
     <GlobeErrorBoundary>
       <Suspense
         fallback={
-          <div className="earth-fallback earth-loading">
-            <img src="/icons/icon.svg" alt="" width="48" height="48" />
-            <p>Loading InnerMap Earth…</p>
-          </div>
+          <EarthSplash />
         }
       >
         <GlobePage />

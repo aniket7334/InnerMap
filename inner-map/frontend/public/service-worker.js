@@ -7,7 +7,7 @@
  *
  * Bump CACHE_VERSION when you change this file's caching rules.
  */
-const CACHE_VERSION = 'v4'; // v4: precache bundled font files
+const CACHE_VERSION = 'v5'; // v5: /data/ files network-first (world names)
 const SHELL_CACHE = `inner-map-shell-${CACHE_VERSION}`;
 const SHELL_URLS = ['/', '/index.html', '/manifest.json', '/icons/icon.svg', '/icons/icon-192.png', '/icons/icon-512.png'];
 
@@ -89,6 +89,23 @@ self.addEventListener('fetch', (event) => {
           return await fetch(request);
         } catch {
           return new Response('', { status: 504, statusText: 'Offline' });
+        }
+      })()
+    );
+    return;
+  }
+
+  // App data files with fixed names (e.g. /data/world-labels.json, the names on the Earth):
+  // network first so updates arrive, the stored copy when offline.
+  if (url.pathname.startsWith('/data/')) {
+    event.respondWith(
+      (async () => {
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) (await caches.open(SHELL_CACHE)).put(url.pathname, fresh.clone());
+          return fresh;
+        } catch {
+          return (await caches.match(url.pathname)) || new Response('', { status: 504, statusText: 'Offline' });
         }
       })()
     );

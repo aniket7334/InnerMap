@@ -42,6 +42,8 @@ import { useRegions } from '../hooks/useRegions';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import { PROVIDERS, SATELLITE_SOURCE } from '../maps/providers';
+import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
+import { labelFont } from '../typography/typographyConfig';
 import { VectorImageryProvider } from '../globe/VectorImageryProvider';
 import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
 import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
@@ -60,8 +62,8 @@ const IMAGERY = {
   osm: 'OpenStreetMap (online only)',
 };
 const STYLES = [
-  { id: 'labels', label: 'Satellite with labels', note: 'Roads and names over the imagery' },
-  { id: 'clean', label: 'Satellite only', note: 'Imagery without labels' },
+  { id: 'labels', label: 'Satellite with labels', note: 'Names of countries, cities and places, plus streets where map data exists' },
+  { id: 'clean', label: 'Satellite only', note: 'Imagery without names' },
   { id: 'map', label: 'Map', note: 'The Inner Map street map' },
 ];
 const START = { lng: 78.9, lat: 21 }; // whole-Earth view over South Asia when no GPS position is known
@@ -440,6 +442,40 @@ export default function GlobePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, mapStyle, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
+
+  // ------------------------------------------------------------ world names
+  // Countries, states, cities, seas (Natural Earth, served by the app - works offline).
+  const [worldNames, setWorldNames] = useState(null);
+  const worldLabelsRef = useRef(null);
+  useEffect(() => {
+    if (worldNames) return;
+    loadWorldLabels()
+      .then(setWorldNames)
+      .catch(() => {});
+  }, [worldNames, status]);
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !worldNames) return undefined;
+    const t = typographyRef.current;
+    const layer = createWorldLabels(viewer, worldNames, {
+      family: labelFont(t).stack,
+      scalePlaces: t.mapLabels.scale.places,
+      scaleCities: t.mapLabels.scale.cities,
+      bold: t.mapLabels.weight === 'bold',
+      detailBounds,
+      avoid: '.earth-controls, .earth-style, .earth-status',
+    });
+    layer.setVisible(mapStyle !== 'clean');
+    worldLabelsRef.current = layer;
+    window.__innerMapWorldLabels = layer; // diagnostics
+    return () => {
+      layer.destroy();
+      worldLabelsRef.current = null;
+    };
+  }, [ready, worldNames, mapLabelKey, detailBounds]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    worldLabelsRef.current?.setVisible(mapStyle !== 'clean');
+  }, [mapStyle]);
 
   // ------------------------------------------------------------ overlays
   useEffect(() => {

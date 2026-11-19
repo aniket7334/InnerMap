@@ -252,6 +252,7 @@ export default function GlobePage() {
         infoBox: true,
         selectionIndicator: true,
         terrainProvider: new EllipsoidTerrainProvider(),
+        showRenderLoopErrors: false, // we show our own, clearer message (below)
         requestRenderMode: true, // only redraw when something changes (saves battery)
         maximumRenderTimeChange: Infinity,
       });
@@ -260,6 +261,22 @@ export default function GlobePage() {
       return undefined;
     }
     const scene = viewer.scene;
+    // Cesium builds the globe surface in web workers served from /cesium. If a deployment lacks
+    // those files, rendering stops with an unhelpful "[object Object]": say what is wrong instead.
+    let filesMissing = false;
+    const MISSING = 'The 3D Earth files (/cesium) are missing from this website, so the globe cannot be drawn. The site needs to be rebuilt with the Cesium files included.';
+    const stopRenderError = scene.renderError.addEventListener((_s, err) => {
+      setError(filesMissing ? MISSING : `The 3D Earth stopped drawing: ${err?.message || 'a background task failed'}. Reload the page to try again.`);
+    });
+    fetch(buildModuleUrl('Workers/createVerticesFromHeightmap.js'), { method: 'HEAD', cache: 'no-store' })
+      .then((r) => {
+        const type = r.headers.get('content-type') || '';
+        if (!r.ok || type.includes('text/html')) {
+          filesMissing = true;
+          setError(MISSING);
+        }
+      })
+      .catch(() => {}); // offline: the cached copy (if any) is used
     // Space look: stars, atmosphere glow, no day/night shading (whole Earth evenly lit).
     scene.globe.enableLighting = false;
     scene.globe.showGroundAtmosphere = true;
@@ -312,6 +329,7 @@ export default function GlobePage() {
       viewerRef.current = null;
       setReady(false);
       stopTileListener();
+      stopRenderError();
       stopChanged();
       stopMoveEnd();
       if (!viewer.isDestroyed()) viewer.destroy();

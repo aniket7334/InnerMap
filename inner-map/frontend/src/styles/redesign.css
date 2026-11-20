@@ -1155,81 +1155,6 @@ a {
   color: rgba(255, 255, 255, 0.75);
 }
 
-/* ---------- InnerMap Earth loading screen ---------- */
-.earth-splash {
-  position: fixed;
-  inset: 0;
-  z-index: 3500;
-  display: grid;
-  place-items: center;
-  background: #020304;
-  color: #fff;
-  font-family: var(--font);
-  transition: opacity 0.6s ease;
-}
-.earth-splash.leaving {
-  opacity: 0;
-  pointer-events: none;
-}
-.earth-splash-sky {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-.earth-splash-center {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 22px;
-  /* sits a little above the centre, like the reference */
-  margin-top: -2vh;
-}
-.earth-splash-title {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: clamp(28px, 3.2vw, 44px);
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  color: rgba(255, 255, 255, 0.94);
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
-  white-space: nowrap;
-}
-.earth-splash-title img {
-  width: 1.15em;
-  height: 1.15em;
-}
-.earth-splash-light {
-  font-weight: 400;
-  color: rgba(255, 255, 255, 0.86);
-}
-.earth-splash-spinner {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 3px solid transparent;
-  border-top-color: #4fc3f7;
-  border-right-color: #29a3ec;
-  border-bottom-color: rgba(41, 163, 236, 0.35);
-  animation: earth-spin 1s cubic-bezier(0.5, 0.15, 0.5, 0.85) infinite;
-  filter: drop-shadow(0 0 4px rgba(79, 195, 247, 0.55));
-}
-@keyframes earth-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .earth-splash-spinner {
-    animation-duration: 2.4s;
-  }
-  .earth-splash {
-    transition: none;
-  }
-}
-
 /* Download page: preparing map data for a new city, and the list of server areas */
 .prep-box {
   display: flex;
@@ -1258,4 +1183,196 @@ a {
 .area-chips .btn.active {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+/* ---------- 3D "Orbit" loading screen (OrbitSplash) ---------- */
+.orbit-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 3500;
+  background: #02040a;
+  font-family: var(--font);
+}
+.orbit-splash-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.orbit-splash-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 0 16px calc(9vh + env(safe-area-inset-bottom));
+  text-align: center;
+  pointer-events: none;
+}
+.orbit-splash-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.orbit-splash-brand img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+}
+.orbit-splash-brand h1 {
+  margin: 0;
+  color: #f1f5f9;
+  font-size: clamp(22px, 3.2vw, 32px);
+  font-weight: 500;
+  letter-spacing: 0.4px;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.orbit-splash-bar {
+  width: min(260px, 60vw);
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+.orbit-splash-bar span {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #4ea1ff, #2dd4bf);
+  transition: width 0.35s ease;
+}
+.orbit-splash-status {
+  min-height: 18px;
+  color: #b6c2d4;
+  font-size: 14px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+.orbit-splash-pct {
+  margin-left: 6px;
+  color: #7dd3fc;
+  font-variant-numeric: tabular-nums;
+}
+
+/* light scene of the Orbit loading screen (also under the 3D one until it has faded in) */
+.orbit-splash.lite {
+  transition: opacity 0.6s ease;
+}
+.orbit-splash.lite.leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+.orbit-lite {
+  position: absolute;
+  inset: 0;
+  transition: opacity 0.6s ease;
+}
+.orbit-lite.hidden {
+  opacity: 0;
+}
+.orbit-lite-stars {
+  position: absolute;
+  inset: 0;
+  opacity: 0.8;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 27% 72%, #fff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 41% 33%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 58% 84%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 66% 12%, #fff 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 79% 57%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 88% 26%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 93% 79%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 6% 61%, #fff 50%, transparent 51%),
+    radial-gradient(1px 1px at 35% 8%, #fff 50%, transparent 51%);
+  background-size: 420px 420px;
+}
+.orbit-lite-system {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+.orbit-lite-globe {
+  position: absolute;
+  left: calc(var(--d) / -2);
+  top: calc(var(--d) / -2);
+  z-index: 2;
+  width: var(--d);
+  height: var(--d);
+  border-radius: 50%;
+  background: #0b2a4a url('/textures/earth-day.v1.jpg') repeat-x;
+  background-size: calc(var(--d) * 2) var(--d);
+  animation: orbit-lite-turn 70s linear infinite;
+  box-shadow:
+    inset calc(var(--d) * -0.2) calc(var(--d) * -0.05) calc(var(--d) * 0.28) rgba(0, 0, 0, 0.88),
+    inset calc(var(--d) * 0.02) calc(var(--d) * 0.02) calc(var(--d) * 0.06) rgba(160, 200, 255, 0.25),
+    0 0 calc(var(--d) * 0.05) rgba(79, 160, 255, 0.6),
+    0 0 calc(var(--d) * 0.2) rgba(40, 110, 255, 0.28);
+}
+@keyframes orbit-lite-turn {
+  from {
+    background-position-x: 0;
+  }
+  to {
+    background-position-x: calc(var(--d) * -2);
+  }
+}
+.orbit-lite-ring {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+}
+.orbit-lite-ring path {
+  fill: none;
+  stroke: rgba(127, 180, 255, 0.34);
+  stroke-width: 1;
+}
+.orbit-lite-ring.back {
+  z-index: 1;
+}
+.orbit-lite-ring.front {
+  z-index: 3;
+}
+.orbit-lite-sat {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: #fbbc04;
+  box-shadow: 0 0 6px 2px rgba(251, 188, 4, 0.55);
+  offset-rotate: 0deg;
+  animation: orbit-lite-fly 11s linear infinite;
+}
+/* front half of the orbit passes in front of the Earth, the back half behind it */
+@keyframes orbit-lite-fly {
+  0% {
+    offset-distance: 0%;
+    z-index: 3;
+  }
+  50% {
+    z-index: 3;
+  }
+  50.01% {
+    z-index: 1;
+  }
+  100% {
+    offset-distance: 100%;
+    z-index: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-lite-globe {
+    animation-duration: 240s;
+  }
+  .orbit-lite-sat {
+    animation-duration: 40s;
+  }
 }

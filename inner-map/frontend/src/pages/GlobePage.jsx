@@ -61,7 +61,7 @@ import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
 import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
-import EarthSplash from '../components/EarthSplash';
+import { splashState } from '../components/splashState';
 import Icon from '../components/Icon';
 import { formatBytes } from '../offline/storage';
 import { confirmDialog } from '../components/ConfirmDialog';
@@ -439,8 +439,17 @@ export default function GlobePage() {
     if (!ready || !viewer || introDone.current) return;
     introDone.current = true;
     const target = position || START;
-    viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, Math.max(36000000, wholeEarthHeight(viewer) * 2)) });
+    // With the 3D loading screen the globe starts at its final view (the loading screen flies
+    // there itself and hands over); with the light one it starts far out and flies in.
+    const height = splashState.get().mode === '3d' ? wholeEarthHeight(viewer) : Math.max(36000000, wholeEarthHeight(viewer) * 2);
+    viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, height) });
+    splashState.set({ progress: 0.35, step: 'Loading satellite imagery' });
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tell the loading screen how far loading is (real steps: 3D engine, imagery, names).
+  useEffect(() => {
+    if (splash === 'gone') splashState.set({ phase: 'gone' });
+  }, [splash]);
 
   // Hide the loading screen once the first imagery has loaded (at most 10 s; at least ~1 s so it
   // does not flash). If the 3D view cannot start, hide it at once so the error is visible.
@@ -464,9 +473,16 @@ export default function GlobePage() {
       viewer.scene.requestRender();
       if (sawLoading && viewer.scene.globe.tilesLoaded) finish();
     };
+    let mostQueued = 0;
     const stop = viewer.scene.globe.tileLoadProgressEvent.addEventListener((queued) => {
       if (queued > 0) sawLoading = true;
       else timers.push(setTimeout(check, 80));
+      mostQueued = Math.max(mostQueued, queued);
+      if (!done && mostQueued > 0) {
+        const imagery = 1 - queued / mostQueued;
+        const progress = Math.max(splashState.get().progress, 0.35 + imagery * 0.5);
+        splashState.set({ progress, step: progress < 0.8 ? 'Loading satellite imagery' : 'Placing country and city names' });
+      }
     });
     const poll = setInterval(check, 400);
     timers.push(setTimeout(finish, 10000));
@@ -477,14 +493,32 @@ export default function GlobePage() {
     };
   }, [ready]);
 
-  // As the loading screen fades, fly in towards the Earth; then remove it.
+  // As the loading screen leaves: the 3D one flies to the globe's exact view and fades over it;
+  // with the light one the globe flies in towards the Earth.
   useEffect(() => {
     if (splash !== 'leaving') return undefined;
     const viewer = viewerRef.current;
     if (viewer && !viewer.isDestroyed()) {
+      if (splashState.get().mode === '3d') {
+        const c = viewer.camera.positionCartographic;
+        const r = viewer.scene.canvas.getBoundingClientRect();
+        splashState.set({
+          phase: 'leaving',
+          progress: 1,
+          handover: {
+            lng: CesiumMath.toDegrees(c.longitude),
+            lat: CesiumMath.toDegrees(c.latitude),
+            height: c.height,
+            fovy: viewer.camera.frustum.fovy,
+            rect: { left: r.left, top: r.top, width: r.width, height: r.height },
+          },
+        });
+        return undefined; // the loading screen removes itself when its fade ends
+      }
       const target = position || START;
       viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(target.lng, target.lat, wholeEarthHeight(viewer)), duration: 2.4 });
     }
+    splashState.set({ phase: 'leaving', progress: 1 });
     const t = setTimeout(() => setSplash('gone'), 650);
     return () => clearTimeout(t);
   }, [splash]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1113,7 +1147,6 @@ export default function GlobePage() {
 
   return (
     <div className="earth" ref={pageRef}>
-      {splash !== 'gone' && <EarthSplash leaving={splash === 'leaving'} />}
       <header className="earth-header">
         <div className="earth-menubar">
           <Link to="/" className="earth-logo" aria-label="InnerMap Earth">

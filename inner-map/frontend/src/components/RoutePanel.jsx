@@ -202,8 +202,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
   const [nearby, setNearby] = useState(null); // { cat, loading, items, error }
 
   const online = status !== 'offline';
-  const serverReachable = status === 'online';
-  const plannedMode = preference === 'auto' ? (serverReachable ? 'online' : 'offline') : preference;
+  const plannedMode = preference === 'auto' ? (online ? 'online' : 'offline') : preference;
   const indexedIds = useMemo(() => regions.filter((r) => r.search?.status === 'completed').map((r) => r.id), [regions]);
 
   useEffect(() => {

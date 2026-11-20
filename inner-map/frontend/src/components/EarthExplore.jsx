@@ -192,7 +192,6 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
     return v.lat != null ? { lat: v.lat, lng: v.lng } : null;
   };
   const findRoute = async (dest = end, prof = profile) => {
-    if (!uid) return;
     setRouteErr(null);
     setBusy(true);
     try {
@@ -225,7 +224,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
     setEnd(v);
     setRoute(null);
     onRoute(null);
-    if (uid) findRoute(v);
+    findRoute(v);
   };
   // Find nearby (directions): places of a kind around the start point, nearest first
   const nearbyForRoute = async (cat) => {
@@ -397,15 +396,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
               <h3>Directions</h3>
               <span className={`mode-badge mode-${online ? 'online' : 'offline'}`}>{online ? 'Online' : 'Offline'}</span>
             </header>
-            {!uid ? (
-              <div className="ex-signin">
-                <Icon name="route2" size={28} />
-                <p>Sign in to get directions on the Earth. Routes are calculated by the Inner Map server from OpenStreetMap roads.</p>
-                <button type="button" className="ex-pill primary" onClick={onNeedAccount}>
-                  Sign in
-                </button>
-              </div>
-            ) : (
+            {(
               <div className="ex-dir-body">
                 <div className="rp-fields">
                   <div className="rp-line" aria-hidden="true" />
@@ -456,7 +447,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
             )}
           </section>
 
-          {uid && !route && !busy && (
+          {!route && !busy && (
             <section className="ex-card ex-area ex-dir-explore">
               {dirNearby ? (
                 <>

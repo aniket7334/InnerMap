@@ -1102,14 +1102,18 @@ export default function GlobePage() {
       viewer.scene.requestRender();
       return;
     }
-    const flat = [];
-    for (const [lat, lng] of route.geometry) flat.push(lng, lat);
+    // drawn a few metres above the surface and also where hills would hide it (depth-fail
+    // material): appears at once, without waiting for ground data like a clamped line does
+    const pts = [];
+    for (const [lat, lng] of route.geometry) pts.push(lng, lat, 4);
+    const routeMaterial = new PolylineOutlineMaterialProperty({ color: Color.fromCssColorString('#1a73e8'), outlineColor: Color.WHITE, outlineWidth: 2 });
     ds.entities.add({
       polyline: {
-        positions: Cartesian3.fromDegreesArray(flat),
+        positions: Cartesian3.fromDegreesArrayHeights(pts),
         width: 7,
-        clampToGround: true,
-        material: new PolylineOutlineMaterialProperty({ color: Color.fromCssColorString('#1a73e8'), outlineColor: Color.WHITE, outlineWidth: 2 }),
+        arcType: ArcType.GEODESIC,
+        material: routeMaterial,
+        depthFailMaterial: routeMaterial,
       },
     });
     const first = route.geometry[0];
@@ -1134,6 +1138,9 @@ export default function GlobePage() {
       flyToBounds({ south: s - pad, north: n + pad, west: w - pad, east: e + pad }, 1.8);
     }
     viewer.scene.requestRender();
+    // the ground-hugging line is built in the background: redraw a few times until it shows
+    // (the globe only redraws when something changes)
+    for (const ms of [150, 400, 900, 1800, 3000]) setTimeout(() => !viewer.isDestroyed() && viewer.scene.requestRender(), ms);
   };
   const openRouteInMap = (route, end) =>
     openMap({

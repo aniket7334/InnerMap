@@ -10,7 +10,8 @@
 // with a downloaded area. If there is no road path, the user is told - no straight-line fallback.
 import { fetchOnlineRoute } from '../services/routingApi';
 import { listRoutingData } from '../offline/routingStore';
-import { isApiReachable } from '../offline/connectivity';
+import { isApiReachable, isOnline } from '../offline/connectivity';
+import { directRoute } from './directOsrm';
 import { covers } from '../../../shared/routing/router.mjs';
 
 let worker = null;
@@ -117,19 +118,39 @@ async function offlineRoute(userId, profile, from, to) {
  * Resolves to a route object with `mode` ('online' | 'offline'); rejects with RouteError.
  */
 export async function calculateRoute({ userId, profile, from, to, preference = 'auto' }) {
-  const useOnline = preference === 'online' || (preference === 'auto' && isApiReachable());
+  const serverUp = isApiReachable();
+  const internet = isOnline(); // false in offline mode too
+  const useOnline = preference === 'online' || (preference === 'auto' && (serverUp || internet));
   if (useOnline) {
-    if (!isApiReachable()) {
-      throw new RouteError('Online routing needs a connection to the Inner Map server.', { code: 'offline', canTryOffline: true });
+    const hasOffline = async () => (userId ? (await listRoutingData(userId)).length > 0 : false);
+    if (serverUp) {
+      try {
+        const r = await fetchOnlineRoute(profile, from, to);
+        return { ...r, mode: 'online' };
+      } catch (err) {
+        const status = err.response?.status;
+        // the server went away, or this visitor is not signed in: ask the routing service directly
+        if (internet && (!status || status === 401 || status === 403 || status >= 502)) {
+          try {
+            return { ...(await directRoute(profile, from, to)), mode: 'online' };
+          } catch {
+            /* report the server's error below */
+          }
+        }
+        const message = err.response?.data?.message || err.message || 'Online routing failed.';
+        throw new RouteError(message, { code: 'online-failed', canTryOffline: await hasOffline() });
+      }
     }
-    try {
-      const r = await fetchOnlineRoute(profile, from, to);
-      return { ...r, mode: 'online' };
-    } catch (err) {
-      const message = err.response?.data?.message || err.message || 'Online routing failed.';
-      const hasOffline = (await listRoutingData(userId)).length > 0;
-      throw new RouteError(message, { code: 'online-failed', canTryOffline: hasOffline });
+    // The Inner Map server is not reachable (not running, or the app is hosted without it):
+    // the public OpenStreetMap routing service directly from the browser.
+    if (internet) {
+      try {
+        return { ...(await directRoute(profile, from, to)), mode: 'online' };
+      } catch (err) {
+        throw new RouteError(err.message || 'Online routing failed.', { code: 'online-failed', canTryOffline: await hasOffline() });
+      }
     }
+    throw new RouteError('Online routing needs an internet connection (offline mode may be on). Downloaded road data can be used instead.', { code: 'offline', canTryOffline: true });
   }
   return offlineRoute(userId, profile, from, to);
 }

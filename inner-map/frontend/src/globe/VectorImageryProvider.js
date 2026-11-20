@@ -19,7 +19,7 @@ export class VectorImageryProvider {
    * @param style     'map' (full map, default) or 'labels' (roads + names only, transparent -
    *                  for laying over satellite imagery)
    */
-  constructor(provider, bounds, typography, style = 'map') {
+  constructor(provider, bounds, typography, style = 'map', { noPois = false } = {}) {
     const flavor = namedFlavor('light');
     this._labelsOnly = style === 'labels';
     this._paintRules = this._labelsOnly ? paintRules(flavor).filter((r) => r.dataLayer === 'roads') : paintRules(flavor);
@@ -29,7 +29,9 @@ export class VectorImageryProvider {
     const source = new PmtilesSource(new LocalFirstVectorSource(provider), false);
     this._view = new View(new TileCache(source, TILE * (1 << LEVEL_DIFF)), provider.maxDataZoom, LEVEL_DIFF);
     const scratch = document.createElement('canvas').getContext('2d');
-    this._labelers = new Labelers(scratch, typography ? buildLabelRules(typography) : labelRules(flavor, 'en'), 16, () => {});
+    const rules = typography ? buildLabelRules(typography) : labelRules(flavor, 'en');
+    // noPois: places of interest are drawn elsewhere (with map symbols)
+    this._labelers = new Labelers(scratch, noPois ? rules.filter((r) => r.dataLayer !== 'pois') : rules, 16, () => {});
 
     // Properties CesiumJS reads from an imagery provider.
     this.tilingScheme = new WebMercatorTilingScheme();

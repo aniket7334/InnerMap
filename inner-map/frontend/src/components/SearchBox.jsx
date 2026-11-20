@@ -36,7 +36,7 @@ const QUICK = [
 
 const SOURCE_BADGE = { offline: 'Offline', saved: 'Saved', online: 'Online', area: 'Offline map', layer: 'Layer', coords: 'Coordinates' };
 
-export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searchButton = false, placeholder }) {
+export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searchButton = false, placeholder, autoPick = false }) {
   const { user } = useAuth();
   const uid = user?.id; // signed-out visitors (Earth start page) get online search only
   const { status } = useConnectivity();
@@ -190,14 +190,20 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searc
     onNavigate?.();
   };
 
-  const runOnline = async () => {
-    if (status === 'offline' || (!q && category === 'all')) return;
+  const runOnline = async (pickFirst = false) => {
+    if (status === 'offline' || (!q && category === 'all')) {
+      // offline: Enter / the search button takes the best match from the downloaded data
+      if (pickFirst && rows[0]) go(rows[0]);
+      return;
+    }
     const key = searchKey;
     setOnline({ key, results: [], loading: true, error: null });
     try {
       const results = await searchOnline({ query: q, category, origin });
       const filtered = results.filter((r) => !radius || (r.distance != null && r.distance <= radius));
       setOnline({ key, results: filtered, loading: false, error: filtered.length ? null : 'Nothing found online.' });
+      // Enter / the search button: go straight to the best match (a city name finds the city)
+      if (pickFirst && filtered[0]) go(filtered[0]);
     } catch (err) {
       setOnline({ key, results: [], loading: false, error: err.message });
     }
@@ -221,7 +227,7 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searc
     } else if (e.key === 'Enter') {
       e.preventDefault();
       if (active >= 0 && rows[active]) go(rows[active]);
-      else runOnline();
+      else runOnline(autoPick);
     } else if (e.key === 'Escape') {
       if (query) setQuery('');
       else {
@@ -296,7 +302,7 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searc
             }
             setOpen(true);
             if (active >= 0 && rows[active]) go(rows[active]);
-            else runOnline();
+            else runOnline(autoPick);
           }}
           aria-label="Search"
           title="Search for any city, town or place"
@@ -399,7 +405,7 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searc
               id={`search-opt-${rows.length}`}
               className={`search-row search-online ${active === rows.length ? 'active' : ''}`}
               onMouseEnter={() => setActive(rows.length)}
-              onClick={runOnline}
+              onClick={() => runOnline(false)}
               disabled={status === 'offline' || (onlineHere && online.loading)}
             >
               <Icon name="globe" size={16} />

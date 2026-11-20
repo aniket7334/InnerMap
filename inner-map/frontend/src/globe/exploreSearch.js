@@ -118,7 +118,10 @@ export const MORE_CATEGORIES = [
   { id: 'grocery', label: 'Grocery', icon: 'cart', color: '#7cb342', q: 'supermarket' },
   { id: 'parks', label: 'Parks', icon: 'tree', color: '#2e7d32', q: 'park' },
   { id: 'museums', label: 'Museums', icon: 'landmark', color: '#b8860b', q: 'museum' },
-  { id: 'worship', label: 'Temples', icon: 'landmark', color: '#8e5cf7', q: 'temple' },
+  // places of worship by religion (OpenStreetMap "religion" tag), with their map symbols
+  { id: 'temples', label: 'Temples', icon: 'landmark', glyph: 'ॐ', color: '#f57c00', q: 'place of worship', religion: ['hindu', 'jain', 'buddhist', 'sikh'] },
+  { id: 'mosques', label: 'Mosques', icon: 'landmark', glyph: '☪', color: '#2e7d32', q: 'place of worship', religion: ['muslim'] },
+  { id: 'churches', label: 'Churches', icon: 'landmark', glyph: '✝', color: '#5c6bc0', q: 'place of worship', religion: ['christian'] },
   { id: 'transit', label: 'Stations', icon: 'train', color: '#1a73e8', q: 'railway station' },
   { id: 'schools', label: 'Schools', icon: 'school', color: '#5c6bc0', q: 'school' },
   { id: 'colleges', label: 'Colleges', icon: 'school', color: '#3949ab', q: 'college' },
@@ -138,6 +141,14 @@ const distanceKm = (a, b) => {
  * Places of a kind in the view. box: { west, south, east, north } (clamped to ~1° around centre).
  * -> [{ id, name, type, address, lat, lng, km }] nearest to the centre first.
  */
+const TYPE_LABELS = { atm: 'ATM', fuel: 'Petrol pump', fast_food: 'Fast food', place_of_worship: 'Place of worship', bus_station: 'Bus station' };
+const RELIGION_PLACE = { hindu: 'Hindu temple', jain: 'Jain temple', buddhist: 'Buddhist temple', sikh: 'Gurudwara', muslim: 'Mosque', christian: 'Church' };
+function typeLabel(type, religion) {
+  if (type === 'place_of_worship' && RELIGION_PLACE[religion]) return RELIGION_PLACE[religion];
+  const t = TYPE_LABELS[type] || (type || '').replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
 export async function searchArea(cat, box, center) {
   if (!isOnline()) throw new Error('Searching the area needs an internet connection (or offline mode is on).');
   const half = 0.5;
@@ -148,12 +159,14 @@ export async function searchArea(cat, box, center) {
   const wait = 1100 - (Date.now() - lastNominatim);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastNominatim = Date.now();
-  const params = new URLSearchParams({ q: cat.q, format: 'jsonv2', limit: '20', addressdetails: '1', viewbox: `${w},${n},${e},${s}`, bounded: '1' });
+  const params = new URLSearchParams({ q: cat.q, format: 'jsonv2', limit: cat.religion ? '40' : '20', addressdetails: '1', viewbox: `${w},${n},${e},${s}`, bounded: '1' });
+  if (cat.religion) params.set('extratags', '1');
   const res = await fetch(`${GEOCODER_URL}?${params}`, { headers: { Accept: 'application/json' } });
   if (res.status === 429) throw new Error('The search service is busy. Try again in a minute.');
   if (!res.ok) throw new Error(`Search failed (HTTP ${res.status}).`);
   const data = await res.json();
   return data
+    .filter((r) => !cat.religion || cat.religion.includes(r.extratags?.religion))
     .map((r) => {
       const lat = Number(r.lat);
       const lng = Number(r.lon);
@@ -161,8 +174,9 @@ export async function searchArea(cat, box, center) {
       const parts = r.display_name.split(',').map((x) => x.trim());
       return {
         id: `${r.osm_type}-${r.osm_id}`,
-        name: r.name || parts[0],
-        type: (r.type || '').replace(/_/g, ' '),
+        // a place with no name of its own is called by its type, not by the street it is on
+        name: r.name || typeLabel(r.type, r.extratags?.religion),
+        type: typeLabel(r.type, r.extratags?.religion),
         address: [a.road, a.suburb || a.neighbourhood, a.city || a.town || a.village].filter(Boolean).slice(0, 2).join(', ') || parts.slice(1, 3).join(', '),
         lat,
         lng,

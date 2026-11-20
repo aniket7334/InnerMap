@@ -253,3 +253,20 @@ export function attributionText(provider) {
     .replace(/&copy;/g, '©')
     .replace(/&middot;/g, '·');
 }
+
+/**
+ * Live traffic for the Earth page: there is no free, key-less source of live traffic, so this is
+ * off until a provider's traffic tiles are configured, e.g. TomTom (free tier with your own key):
+ * VITE_TRAFFIC_TILE_URL=https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=YOUR_KEY
+ * (optionally VITE_TRAFFIC_ATTRIBUTION for the credit line).
+ */
+export const TRAFFIC_SOURCE = env.VITE_TRAFFIC_TILE_URL
+  ? { url: env.VITE_TRAFFIC_TILE_URL, attribution: env.VITE_TRAFFIC_ATTRIBUTION || 'Traffic: © TomTom', minZoom: 8, maxZoom: 18 }
+  : null;
+
+/** Relief shading for the Earth page's Terrain view (Esri World Hillshade; online viewing only). */
+export const HILLSHADE_SOURCE = {
+  url: 'https://services.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}',
+  attribution: 'Hillshade: Esri',
+  maxZoom: 16,
+};

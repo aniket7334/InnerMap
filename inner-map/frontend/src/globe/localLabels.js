@@ -8,6 +8,7 @@
 //          areas you visited) - building and street names need the internet.
 import { Credit, Math as CesiumMath } from 'cesium';
 import Pbf from 'pbf';
+import { poiIcon, poiKind } from './poiIcons';
 import { VectorTile } from '@mapbox/vector-tile';
 
 const TILEJSON = import.meta.env.VITE_LABEL_TILES_URL || 'https://tiles.openfreemap.org/planet';
@@ -67,10 +68,14 @@ function poiItem(p, lng, lat) {
   const style = POI[p.class] || POI[p.subclass];
   const [color, level] = style || ['#bdc1c6', 6];
   const rank = p.rank || 30;
+  const kind = poiKind(p.class, p.subclass);
   return {
     lng,
     lat,
     text,
+    poi: true,
+    icon: kind ? poiIcon(kind) : null,
+    iconSize: level <= 1 ? 26 : 22,
     px: level <= 1 ? 15.5 : 14,
     weight: level <= 1 ? 600 : 500,
     color: '#ffffff',
@@ -169,7 +174,7 @@ function tilesInView(rect, center, z, max) {
 }
 
 let templatePromise = null;
-function tileTemplate() {
+export function tileTemplate() {
   if (!templatePromise) {
     templatePromise = fetch(TILEJSON)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
@@ -207,7 +212,7 @@ function geoTiles() {
 /**
  * @param viewer Cesium viewer
  * @param layer  world-label layer (createWorldLabels) - draws the names
- * @param opts   { isOnline(): bool, skip(lat, lng): bool }  skip: areas where another layer already draws local names
+ * @param opts   { isOnline(): bool, skip(lat, lng, item): bool }  skip: areas where another layer already draws local names
  */
 export function createLocalLabels(viewer, layer, opts = {}) {
   const cache = new Map(); // key -> Promise<items[]>
@@ -230,7 +235,7 @@ export function createLocalLabels(viewer, layer, opts = {}) {
     while (order.length > 160) cache.delete(order.shift());
     return promise;
   };
-  const filtered = (items) => (opts.skip ? items.filter((it) => !opts.skip(it.lat, it.lng)) : items);
+  const filtered = (items) => (opts.skip ? items.filter((it) => !opts.skip(it.lat, it.lng, it)) : items);
 
   const osmTile = (template, z, x, y) => {
     const key = `osm/${z}/${x}/${y}`;

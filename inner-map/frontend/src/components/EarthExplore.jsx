@@ -123,6 +123,12 @@ function Weather({ online, center, worldNames }) {
   );
 }
 
+/** A category symbol: a map glyph (ॐ, ☪, ✝) where the category has one, else an icon. */
+function CatIcon({ item, size }) {
+  if (item.glyph) return <span className="ex-glyph" style={{ fontSize: Math.round(size * 0.95) }} aria-hidden="true">{item.glyph}</span>;
+  return <Icon name={item.icon} size={size} />;
+}
+
 export default function EarthExplore({ uid, online, worldNames, center, getViewBox, onFly, results, onResults, selected, onSelect, onRoute, onNeedAccount, onOpenMap, onOpenPhoto }) {
   const { position, locateOnce } = useLocation();
   const { locations, add: addSaved } = useSavedLocations(uid);
@@ -165,18 +171,27 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
       setMoreCats(true);
       return;
     }
-    const box = getViewBox();
+    // the area in view; zoomed out too far to mean a place: near you (GPS) or the centre of the view
+    let box = getViewBox();
+    let where = 'in this area';
     if (!box) {
-      setArea({ cat, loading: false, error: 'Zoom in to a city or town to search the area.' });
-      onResults([]);
-      return;
+      const at = position ? { lat: position.lat, lng: position.lng } : center ? { lat: center.lat, lng: center.lng } : null;
+      if (!at) {
+        setArea({ cat, loading: false, error: 'Point the view at a city, or allow location access, to find places nearby.' });
+        onResults([]);
+        return;
+      }
+      const d = 0.06; // about 6 km around
+      box = { rect: { west: at.lng - d, east: at.lng + d, south: at.lat - d, north: at.lat + d }, center: at };
+      where = position ? 'near you' : 'near the centre of the view';
+      onFly({ lat: at.lat, lng: at.lng, zoom: 13 });
     }
-    setArea({ cat, loading: true, error: null });
+    setArea({ cat, loading: true, error: null, where });
     onResults([]);
     try {
       const list = await searchArea(cat, box.rect, box.center);
-      setArea({ cat, loading: false, error: list.length ? null : `No ${cat.label.toLowerCase()} found in this area. Zoom in to a city, or move the view.` });
-      onResults(list.map((r, i) => ({ ...r, n: i + 1, color: cat.color, icon: cat.icon })));
+      setArea({ cat, loading: false, where, error: list.length ? null : `No ${cat.label.toLowerCase()} found ${where}. Zoom in to a city, or move the view.` });
+      onResults(list.map((r, i) => ({ ...r, n: i + 1, color: cat.color, icon: cat.icon, glyph: cat.glyph })));
       listRef.current?.scrollTo?.(0, 0);
     } catch (err) {
       setArea({ cat, loading: false, error: err.message });
@@ -318,7 +333,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
           <section className="ex-card ex-search">
             <div className="ex-search-row">
               <div className="ex-search-box">
-                <SearchBox variant="earth" searchButton placeholder="Search any city or place" onSelect={(row) => (pickSearch(row), setPlace(row?.lat != null ? row : null), onFly(row))} />
+                <SearchBox variant="earth" searchButton autoPick placeholder="Search any city or place" onSelect={(row) => (pickSearch(row), setPlace(row?.lat != null ? row : null), onFly(row))} />
               </div>
               <button type="button" className="ex-dir-btn" onClick={() => setMode('directions')} title="Directions" aria-label="Directions">
                 <Icon name="navigation" size={18} />
@@ -394,7 +409,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                     {cats.map((c) => (
                       <button key={c.id} type="button" className="ex-cat" style={{ '--c': c.color }} onClick={() => runArea(c)} disabled={!online && c.id !== 'more'}>
                         <span className="ex-cat-badge">
-                          <Icon name={c.icon} size={22} />
+                          <CatIcon item={c} size={22} />
                         </span>
                         <span>{c.label}</span>
                       </button>
@@ -410,9 +425,11 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                     <Icon name="chevron" size={18} className="ex-back" />
                   </button>
                   <span className="ex-cat-badge small" style={{ '--c': area.cat.color }}>
-                    <Icon name={area.cat.icon} size={15} />
+                    <CatIcon item={area.cat} size={15} />
                   </span>
-                  <h3>{area.cat.label} in this area</h3>
+                  <h3>
+                    {area.cat.label} {area.where || 'in this area'}
+                  </h3>
                   <button type="button" className="ex-icon-btn" onClick={closeArea} aria-label="Close results">
                     <Icon name="close" size={16} />
                   </button>
@@ -440,18 +457,22 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                     </div>
                   </div>
                 )}
-                <ol className="ex-results" ref={listRef}>
+                <ol className="ex-results ex-result-cards" ref={listRef}>
                   {results.map((r) => (
-                    <li key={r.id}>
-                      <button type="button" className={selected?.id === r.id ? 'on' : ''} onClick={() => (onSelect(r), remember({ name: r.name, sub: r.address, lat: r.lat, lng: r.lng }))}>
-                        <span className="ex-num" style={{ '--c': r.color }}>
-                          {r.n}
+                    <li key={r.id} className={selected?.id === r.id ? 'on' : ''}>
+                      <button type="button" className="ex-rc-main" onClick={() => (onSelect(r), remember({ name: r.name, sub: r.address, lat: r.lat, lng: r.lng }))}>
+                        <span className="ex-rc-icon" style={{ '--c': r.color }}>
+                          <CatIcon item={r} size={18} />
+                          <b>{r.n}</b>
                         </span>
                         <span className="ex-recent-text">
                           <strong>{r.name}</strong>
                           <small>{[r.type, r.address].filter(Boolean).join(' · ')}</small>
+                          <small className="ex-rc-dist">{formatKm(r.km)} away</small>
                         </span>
-                        <span className="ex-dist">{formatKm(r.km)}</span>
+                      </button>
+                      <button type="button" className="ex-rc-go" onClick={() => directionsTo(r)} aria-label={`Directions to ${r.name}`} title="Directions">
+                        <Icon name="navigation" size={16} />
                       </button>
                     </li>
                   ))}
@@ -532,7 +553,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                       <Icon name="chevron" size={18} className="ex-back" />
                     </button>
                     <span className="ex-cat-badge small" style={{ '--c': dirNearby.cat.color }}>
-                      <Icon name={dirNearby.cat.icon} size={15} />
+                      <CatIcon item={dirNearby.cat} size={15} />
                     </span>
                     <h3>{dirNearby.cat.label} nearby</h3>
                   </header>
@@ -599,7 +620,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                     {AREA_CATEGORIES.filter((c) => c.id !== 'more').concat(MORE_CATEGORIES.slice(0, 1)).map((c) => (
                       <button key={c.id} type="button" className="ex-cat" style={{ '--c': c.color }} onClick={() => nearbyForRoute(c)} disabled={!online}>
                         <span className="ex-cat-badge">
-                          <Icon name={c.icon} size={22} />
+                          <CatIcon item={c} size={22} />
                         </span>
                         <span>{c.label}</span>
                       </button>

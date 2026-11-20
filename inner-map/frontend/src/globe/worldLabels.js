@@ -9,6 +9,7 @@
 // Labels are created only when they first come into view, so start-up stays fast.
 // Street-level names come from the OpenStreetMap layer instead.
 import {
+  BillboardCollection,
   LabelCollection,
   PointPrimitiveCollection,
   Cartesian2,
@@ -78,6 +79,7 @@ export function createWorldLabels(viewer, data, opts) {
   const scene = viewer.scene;
   const labels = scene.primitives.add(new LabelCollection({ scene }));
   const dots = scene.primitives.add(new PointPrimitiveCollection());
+  const icons = scene.primitives.add(new BillboardCollection({ scene })); // place symbols (temples, hospitals...)
   const family = opts.family || 'sans-serif';
   const sp = opts.scalePlaces ?? 1;
   const sc = opts.scaleCities ?? 1;
@@ -130,12 +132,15 @@ export function createWorldLabels(viewer, data, opts) {
       outlineColor: OUTLINE,
       outlineWidth: 4,
       style: LabelStyle.FILL_AND_OUTLINE,
-      horizontalOrigin: it.dot ? HorizontalOrigin.LEFT : HorizontalOrigin.CENTER,
+      horizontalOrigin: it.dot || it.icon ? HorizontalOrigin.LEFT : HorizontalOrigin.CENTER,
       verticalOrigin: VerticalOrigin.CENTER,
-      pixelOffset: it.dot ? new Cartesian2(Math.round((it.dotSize || 5) / 2) + 5, 0) : Cartesian2.ZERO,
+      pixelOffset: it.icon ? new Cartesian2(Math.round(it.iconSize / 2) + 5, 0) : it.dot ? new Cartesian2(Math.round((it.dotSize || 5) / 2) + 5, 0) : Cartesian2.ZERO,
       scaleByDistance: it.scale,
       show: false,
     });
+    if (it.icon && !it.iconBb) {
+      it.iconBb = icons.add({ position: it.position, image: it.icon, width: it.iconSize, height: it.iconSize, show: false });
+    }
     if (it.dot === true) {
       it.dot = dots.add({ position: it.position, pixelSize: it.dotSize, color: it.dotColor, outlineColor: OUTLINE, outlineWidth: 1.5, show: false });
     }
@@ -144,6 +149,7 @@ export function createWorldLabels(viewer, data, opts) {
     if (!it.label) return;
     it.label.show = show;
     if (it.dot && it.dot !== true) it.dot.show = show;
+    if (it.iconBb) it.iconBb.show = show;
   };
 
   const occluder = new EllipsoidalOccluder(Ellipsoid.WGS84, Cartesian3.ZERO);
@@ -179,9 +185,9 @@ export function createWorldLabels(viewer, data, opts) {
           Cartesian3.normalize(Cartesian3.subtract(cam, it.position, toCam), toCam);
           if (Cartesian3.dot(normal, toCam) > 0.22 && scene.cartesianToCanvasCoordinates(it.position, canvasPos)) {
             const s = it.scale ? it.scale.nearValue : 1;
-            const bw = it.text.length * it.px * 0.58 * s + (it.dot ? (it.dotSize || 5) + 8 : 0);
-            const bh = it.px * 1.35 * s;
-            const x0 = it.dot ? canvasPos.x - 4 : canvasPos.x - bw / 2;
+            const bw = it.text.length * it.px * 0.58 * s + (it.icon ? it.iconSize + 8 : it.dot ? (it.dotSize || 5) + 8 : 0);
+            const bh = Math.max(it.px * 1.35 * s, it.icon ? it.iconSize : 0);
+            const x0 = it.icon ? canvasPos.x - it.iconSize / 2 : it.dot ? canvasPos.x - 4 : canvasPos.x - bw / 2;
             const y0 = canvasPos.y - bh / 2;
             const box = [x0 - 3, y0 - 2, x0 + bw + 3, y0 + bh + 2];
             // whole name on screen, and clear of the controls / credits along the bottom
@@ -221,6 +227,7 @@ export function createWorldLabels(viewer, data, opts) {
     for (const it of group) {
       if (it.label) labels.remove(it.label);
       if (it.dot && it.dot !== true) dots.remove(it.dot);
+      if (it.iconBb) icons.remove(it.iconBb);
     }
     const gone = new Set(group);
     for (let i = items.length - 1; i >= 0; i--) if (gone.has(items[i])) items.splice(i, 1);
@@ -278,7 +285,9 @@ export function createWorldLabels(viewer, data, opts) {
           near: d.near || 0,
           far: d.far,
           prio: d.prio,
-          dot: d.dot ? true : undefined,
+          dot: d.dot && !d.icon ? true : undefined,
+          icon: d.icon || null,
+          iconSize: d.iconSize || 22,
           dotColor: d.dotColor ? toColor(d.dotColor) : WHITE,
           dotSize: d.dotSize || 4,
           group: key,
@@ -306,6 +315,7 @@ export function createWorldLabels(viewer, data, opts) {
         if (credit) viewer.creditDisplay.removeStaticCredit(credit);
         scene.primitives.remove(labels);
         scene.primitives.remove(dots);
+        scene.primitives.remove(icons);
         scene.requestRender();
       }
     },

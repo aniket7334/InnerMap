@@ -124,6 +124,59 @@ export default function EarthSettings({
         )}
 
         <section>
+          <h3>Map details</h3>
+          <div className="earth-set-details" role="group" aria-label="Map details">
+            {[
+              {
+                key: 'relief',
+                label: 'Terrain',
+                icon: 'mountain',
+                note: online || visuals.terrainLocal ? 'Mountains and valleys in 3D with relief shading. Tilt the view (3D) to see them.' : 'Terrain needs an internet connection.',
+                disabled: !online && !visuals.terrainLocal,
+              },
+              {
+                key: 'transit',
+                label: 'Transit',
+                icon: 'train',
+                note: online ? 'Railway, metro, monorail and tram lines and stations (zoom in to a city).' : 'Transit lines need an internet connection.',
+                disabled: !online,
+              },
+              {
+                key: 'traffic',
+                label: 'Traffic',
+                icon: 'traffic',
+                note: !visuals.trafficAvailable
+                  ? 'Live traffic needs a traffic provider key (e.g. TomTom, free tier) - set VITE_TRAFFIC_TILE_URL. No traffic is shown without real data.'
+                  : online
+                    ? 'Live traffic on main roads (green flowing, red slow).'
+                    : 'Live traffic needs an internet connection.',
+                disabled: !visuals.trafficAvailable || !online,
+              },
+            ].map((d) => (
+              <button
+                key={d.key}
+                type="button"
+                className={`earth-set-detail ${visuals[d.key] ? 'on' : ''}`}
+                aria-pressed={Boolean(visuals[d.key])}
+                disabled={d.disabled}
+                onClick={() => onVisual(d.key, !visuals[d.key])}
+                title={d.note}
+              >
+                <span className={`earth-set-detail-art art-${d.key}`}>
+                  <Icon name={d.icon} size={22} />
+                </span>
+                <span>{d.label}</span>
+              </button>
+            ))}
+          </div>
+          <p className="earth-set-note">
+            {[visuals.relief && 'Terrain: tilt the view (3D button) to see the mountains.', !visuals.trafficAvailable && 'Traffic is off: no live traffic source is configured.']
+              .filter(Boolean)
+              .join(' ')}
+          </p>
+        </section>
+
+        <section>
           <h3>More visuals</h3>
           <Switch
             label="Photos"
@@ -134,9 +187,6 @@ export default function EarthSettings({
           />
           <Switch label="Gridlines" note="Show latitude and longitude lines." checked={visuals.grid} onChange={(v) => onVisual('grid', v)} />
           <Switch label="Sky and atmosphere" note="Stars, and the blue glow around the Earth." checked={visuals.sky} onChange={(v) => onVisual('sky', v)} />
-          {visuals.terrainAvailable && (
-            <Switch label="3D terrain" note="Mountains and valleys in 3D (tilt the view to see them)." checked={visuals.terrain} onChange={(v) => onVisual('terrain', v)} />
-          )}
         </section>
       </div>
     </aside>

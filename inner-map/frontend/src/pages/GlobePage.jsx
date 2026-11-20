@@ -51,7 +51,9 @@ import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { useFeatureLayers } from '../hooks/useFeatureLayers';
-import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE } from '../maps/providers';
+import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE, TRAFFIC_SOURCE, HILLSHADE_SOURCE } from '../maps/providers';
+import { terrariumTerrain } from '../globe/TerrariumTerrainProvider';
+import { TransitImageryProvider } from '../globe/TransitImageryProvider';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
 import { createLocalLabels } from '../globe/localLabels';
 import { createPhotoMarkers, fetchPlacePhotos, loadWorldPhotos, mergePhotos, searchKey, viewRadiusKm, worldPhotosInView, PHOTOS_MAX_HEIGHT } from '../globe/placePhotos';
@@ -248,7 +250,9 @@ export default function GlobePage() {
   const [showRegions, setShowRegions] = useState(sb.regions ?? true);
   const [showGrid, setShowGrid] = useState(sb.grid ?? false);
   const [showSky, setShowSky] = useState(sb.sky ?? true);
-  const [terrainOn, setTerrainOn] = useState(sb.terrain ?? true);
+  const [terrainOn, setTerrainOn] = useState(sb.relief ?? false); // Terrain view: 3D relief + shading
+  const [showTransit, setShowTransit] = useState(sb.transit ?? false);
+  const [showTraffic, setShowTraffic] = useState(Boolean(TRAFFIC_SOURCE) && (sb.traffic ?? false));
   const [follow, setFollow] = useState(false);
   const [offline, setOffline] = useState({ supported: true, ready: false });
   const [caching, setCaching] = useState(null); // { done, total }
@@ -566,19 +570,66 @@ export default function GlobePage() {
     const viewer = viewerRef.current;
     if (!ready || !viewer) return undefined;
     let cancelled = false;
-    if (globeData.terrain.available && serverReachable && terrainOn) {
+    if (terrainOn && globeData.terrain.available && serverReachable) {
       CesiumTerrainProvider.fromUrl('/globe-data/terrain')
         .then((tp) => {
           if (!cancelled && !viewer.isDestroyed()) viewer.terrainProvider = tp;
         })
         .catch(() => {});
+    } else if (terrainOn && online) {
+      viewer.terrainProvider = terrariumTerrain(); // open elevation tiles (online)
     } else {
       viewer.terrainProvider = new EllipsoidTerrainProvider();
     }
+    // a little exaggeration makes hills readable from far away (like other 3D globes)
+    viewer.scene.verticalExaggeration = terrainOn ? 1.6 : 1;
+    viewer.scene.requestRender();
     return () => {
       cancelled = true;
     };
-  }, [ready, globeData.terrain.available, serverReachable, terrainOn]);
+  }, [ready, globeData.terrain.available, serverReachable, terrainOn, online]);
+
+  // Terrain view: relief shading over the imagery (online viewing only)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !terrainOn || !online) return undefined;
+    const layer = new ImageryLayer(
+      new UrlTemplateImageryProvider({ url: HILLSHADE_SOURCE.url, maximumLevel: HILLSHADE_SOURCE.maxZoom, credit: new Credit(HILLSHADE_SOURCE.attribution) }),
+      { alpha: 0.42 }
+    );
+    viewer.imageryLayers.add(layer, Math.min(3, viewer.imageryLayers.length));
+    viewer.scene.requestRender();
+    return () => {
+      if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
+    };
+  }, [ready, terrainOn, online]);
+
+  // Transit view: rail / metro / tram lines and stations (OpenStreetMap, online)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !showTransit || !online) return undefined;
+    const layer = new ImageryLayer(new TransitImageryProvider());
+    viewer.imageryLayers.add(layer);
+    viewer.scene.requestRender();
+    return () => {
+      if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
+    };
+  }, [ready, showTransit, online]);
+
+  // Traffic: live traffic tiles from a configured provider (none without a key - never faked)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer || !showTraffic || !online || !TRAFFIC_SOURCE) return undefined;
+    const layer = new ImageryLayer(
+      new UrlTemplateImageryProvider({ url: TRAFFIC_SOURCE.url, minimumLevel: 0, maximumLevel: TRAFFIC_SOURCE.maxZoom, credit: new Credit(TRAFFIC_SOURCE.attribution) }),
+      { minimumTerrainLevel: TRAFFIC_SOURCE.minZoom - 1 }
+    );
+    viewer.imageryLayers.add(layer);
+    viewer.scene.requestRender();
+    return () => {
+      if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
+    };
+  }, [ready, showTraffic, online]);
 
   // ------------------------------------------------------------ imagery over Natural Earth
   const effectiveBase = base === 'osm' && !online ? 'naturalEarth' : base === 'local' && !serverReachable ? 'naturalEarth' : base;
@@ -651,14 +702,19 @@ export default function GlobePage() {
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!ready || !viewer || !VECTOR || !detailBounds || mapStyle === 'clean') return undefined;
-    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds, typographyRef.current, mapStyle === 'map' ? 'map' : 'labels'));
+    // Over satellite imagery and online, places (temples, hospitals, ATMs...) get map symbols from the
+    // local-names layer, so this layer leaves them out; offline it keeps its own place names.
+    const symbols = mapStyle !== 'map' && online;
+    poisWithSymbolsRef.current = symbols;
+    localLabelsRef.current?.refresh();
+    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds, typographyRef.current, mapStyle === 'map' ? 'map' : 'labels', { noPois: symbols }));
     viewer.imageryLayers.add(layer);
     viewer.scene.requestRender();
     return () => {
       if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mapStyle, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
+  }, [ready, mapStyle, online, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
 
   // ------------------------------------------------------------ world names
   // Countries, states, cities, seas (Natural Earth, served by the app - works offline).
@@ -668,6 +724,7 @@ export default function GlobePage() {
   // read by the local-names loader without re-creating it
   const onlineRef = useRef(online);
   onlineRef.current = online;
+  const poisWithSymbolsRef = useRef(false); // satellite + online: places are drawn with map symbols, not by the street-data layer
   const serverNamesRef = useRef(false); // the server's street-data layer draws its own local names
   serverNamesRef.current = !!VECTOR && mapStyle !== 'clean';
   // Hidden in "Clean", and in "Map" while the online OpenStreetMap map (which has its own names) shows.
@@ -696,7 +753,7 @@ export default function GlobePage() {
     // Towns, villages, neighbourhoods, buildings and streets as you zoom in.
     const local = createLocalLabels(viewer, layer, {
       isOnline: () => onlineRef.current,
-      skip: (lat, lng) => serverNamesRef.current && detailAreas.some((b) => lat >= b.south && lat <= b.north && lng >= b.west && lng <= b.east),
+      skip: (lat, lng, it) => serverNamesRef.current && !(it?.poi && poisWithSymbolsRef.current) && detailAreas.some((b) => lat >= b.south && lat <= b.north && lng >= b.west && lng <= b.east),
     });
     local.setEnabled(showWorldNames);
     localLabelsRef.current = local;
@@ -837,18 +894,23 @@ export default function GlobePage() {
     if (key === 'photos') togglePhotos(on);
     else if (key === 'grid') setShowGrid(on);
     else if (key === 'sky') setShowSky(on);
-    else if (key === 'terrain') setTerrainOn(on);
+    else if (key === 'terrain' || key === 'relief') {
+      setTerrainOn(on);
+      // tilt a little so the mountains show at once
+      if (on && camera.pitch < -80 && camera.height < 3000000) tiltTo(-55);
+    } else if (key === 'transit') setShowTransit(on);
+    else if (key === 'traffic') setShowTraffic(on);
   };
   useEffect(() => {
     try {
       localStorage.setItem(
         BASEMAP_KEY,
-        JSON.stringify({ style: mapStyle, detail, names: namesPref, places: showPlaces, regions: showRegions, layers: showLayers, grid: showGrid, sky: showSky, terrain: terrainOn })
+        JSON.stringify({ style: mapStyle, detail, names: namesPref, places: showPlaces, regions: showRegions, layers: showLayers, grid: showGrid, sky: showSky, relief: terrainOn, transit: showTransit, traffic: showTraffic })
       );
     } catch {
       /* private window: settings last for this visit only */
     }
-  }, [mapStyle, detail, namesPref, showPlaces, showRegions, showLayers, showGrid, showSky, terrainOn]);
+  }, [mapStyle, detail, namesPref, showPlaces, showRegions, showLayers, showGrid, showSky, terrainOn, showTransit, showTraffic]);
 
   // Sky and atmosphere: stars, the glow at the Earth's edge and the haze over the ground.
   useEffect(() => {
@@ -1338,7 +1400,7 @@ export default function GlobePage() {
 
         <div className="earth-toolbar">
           <div className="earth-search">
-            <SearchBox variant="earth" onSelect={onSearchSelect} />
+            <SearchBox variant="earth" autoPick onSelect={onSearchSelect} />
           </div>
           <div className="earth-tools" role="toolbar" aria-label="Tools">
             <ToolButton icon="crosshair" label="Fly to my location" onClick={locate} />
@@ -1545,7 +1607,16 @@ export default function GlobePage() {
                 : null,
             ],
           }}
-          visuals={{ photos: photosActive, grid: showGrid, sky: showSky, terrain: terrainOn, terrainAvailable: globeData.terrain.available && serverReachable }}
+          visuals={{
+            photos: photosActive,
+            grid: showGrid,
+            sky: showSky,
+            relief: terrainOn,
+            transit: showTransit,
+            traffic: showTraffic,
+            trafficAvailable: Boolean(TRAFFIC_SOURCE),
+            terrainLocal: globeData.terrain.available && serverReachable,
+          }}
           onVisual={changeVisual}
           online={online}
           hint={!detailBounds && mapStyle !== 'clean' && mapStyle !== 'map' ? 'Street names appear where map data is available (server area or your downloads).' : null}

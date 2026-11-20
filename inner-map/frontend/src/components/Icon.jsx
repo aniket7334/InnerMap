@@ -69,6 +69,8 @@ const PATHS = {
   landmark: 'M3 21h18M5 21V11m4 10V11m6 10V11m4 10V11M2.5 11h19L12 4z',
   school: 'm2 9 10-5 10 5-10 5-10-5zm4 2.2V16c3 2.7 9 2.7 12 0v-4.8M22 9v6',
   shield: 'M12 21s-7.5-3-7.5-10V5.5L12 3l7.5 2.5V11c0 7-7.5 10-7.5 10z',
+  mountain: 'M2.5 20 9 8.5l3.8 6.3 2.4-3.8L21.5 20zM9 8.5l1.8 3',
+  traffic: 'M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm4 3.5h.01M12 12h.01M12 17.5h.01',
   database: 'M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3zm-8 3v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3',
 };
 
@@ -93,3 +95,6 @@ export default function Icon({ name, size = 18, className = '' }) {
     </svg>
   );
 }
+
+/** The raw SVG paths (24 x 24), e.g. for drawing map symbols on a canvas. */
+export const ICON_PATHS = PATHS;

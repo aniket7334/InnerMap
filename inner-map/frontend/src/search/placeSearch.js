@@ -2,6 +2,7 @@
 // and online (OpenStreetMap Nominatim, on request only - its usage policy forbids
 // autocomplete; max 1 request per second; attribution shown in the results).
 import { getDB } from '../offline/db';
+import { isOnline } from '../offline/connectivity';
 import { distanceMeters } from '../maps/geo';
 import { CATEGORIES, categoryOf, kindLabel } from './categories';
 
@@ -188,7 +189,7 @@ function onlineCategory(r) {
  * Throws a readable error when offline or on HTTP errors (e.g. 429 rate limit).
  */
 export async function searchOnline({ query = '', category = 'all', origin = null }) {
-  if (!navigator.onLine) throw new Error('Online search needs an internet connection.');
+  if (!isOnline()) throw new Error('Online search needs an internet connection (or offline mode is on).');
   let q = query.trim();
   if (!q && category !== 'all') q = ONLINE_PHRASE[category] || '';
   else if (q && category !== 'all' && ONLINE_PHRASE[category]) q = `${ONLINE_PHRASE[category]} ${q}`;

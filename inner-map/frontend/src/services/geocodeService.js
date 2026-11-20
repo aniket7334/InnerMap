@@ -1,4 +1,5 @@
 // Place search for choosing a city/region to download.
+import { isOnline } from '../offline/connectivity';
 // Nominatim usage policy: max 1 request per second, no autocomplete, attribution.
 // We only search when the user submits the form, and throttle to 1 req/s.
 const GEOCODER_URL = import.meta.env.VITE_GEOCODER_URL || 'https://nominatim.openstreetmap.org/search';
@@ -7,7 +8,7 @@ let lastRequest = 0;
 export async function searchPlaces(query) {
   const q = query.trim();
   if (!q) return [];
-  if (!navigator.onLine) throw new Error('Place search needs an internet connection.');
+  if (!isOnline()) throw new Error('Place search needs an internet connection (or offline mode is on).');
 
   const wait = 1100 - (Date.now() - lastRequest);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));

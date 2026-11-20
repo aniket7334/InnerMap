@@ -25,6 +25,7 @@ import './services/featureService';
 import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
+import ConnectionNotice from './components/ConnectionNotice';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
           <ProviderProvider>
           <TypographyProvider>
           <BrowserRouter>
+            <ConnectionNotice />
             <Routes>
               {/* Start screen: the 3D Earth (full screen, for everyone; saving needs an account) */}
               <Route path="/" element={<GlobeLoader />} />

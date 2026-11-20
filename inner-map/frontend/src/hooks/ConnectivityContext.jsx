@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { getConnectivity, subscribe, startConnectivityMonitor, checkNow } from '../offline/connectivity';
+import { getConnectivity, subscribe, startConnectivityMonitor, checkNow, setOfflineMode } from '../offline/connectivity';
 import { subscribePending, getPendingCount, flushOutbox, startSync } from '../offline/syncService';
 import { useAuth } from './AuthContext';
 
@@ -39,7 +39,7 @@ export function ConnectivityProvider({ children }) {
   const status = !state.online ? 'offline' : state.apiReachable ? 'online' : 'limited';
 
   return (
-    <ConnectivityContext.Provider value={{ ...state, status, pendingCount, syncing, syncNow }}>
+    <ConnectivityContext.Provider value={{ ...state, status, pendingCount, syncing, syncNow, setOfflineMode }}>
       {children}
     </ConnectivityContext.Provider>
   );

@@ -73,7 +73,7 @@ function Weather({ online, center, worldNames }) {
         <>
           {!online && <p className="ex-weather-msg">The weather needs an internet connection.</p>}
           {online && data?.error && <p className="ex-weather-msg">The weather could not be loaded ({data.error}).</p>}
-          {online && !data && <p className="ex-weather-msg">Loading the weather…</p>}
+          {online && !data && <div className="ex-skeleton light" aria-label="Loading the weather" />}
           {online && w && (
             <div className="ex-weather-main">
               <div className="ex-temp">
@@ -137,6 +137,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
   const [routeErr, setRouteErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stepsOpen, setStepsOpen] = useState(false);
+  const [dirNearby, setDirNearby] = useState(null); // { cat, loading, items, error }
   const listRef = useRef(null);
 
   const remember = (p) => {
@@ -226,6 +227,28 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
     onRoute(null);
     if (uid) findRoute(v);
   };
+  // Find nearby (directions): places of a kind around the start point, nearest first
+  const nearbyForRoute = async (cat) => {
+    let origin = null;
+    try {
+      origin = start?.kind === 'gps' ? (position ? { lat: position.lat, lng: position.lng } : null) : start?.lat != null ? { lat: start.lat, lng: start.lng } : null;
+    } catch {
+      origin = null;
+    }
+    if (!origin && center) origin = { lat: center.lat, lng: center.lng };
+    if (!origin) {
+      setDirNearby({ cat, loading: false, items: [], error: 'Choose a starting point first.' });
+      return;
+    }
+    setDirNearby({ cat, loading: true, items: [], error: null });
+    try {
+      const d = 0.12; // about 13 km around the start
+      const items = await searchArea(cat, { west: origin.lng - d, east: origin.lng + d, south: origin.lat - d, north: origin.lat + d }, origin);
+      setDirNearby({ cat, loading: false, items: items.slice(0, 8), error: items.length ? null : `No ${cat.label.toLowerCase()} found near the start.` });
+    } catch (err) {
+      setDirNearby({ cat, loading: false, items: [], error: err.message });
+    }
+  };
   const closeDirections = () => {
     setMode('explore');
     setRoute(null);
@@ -249,7 +272,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
           <section className="ex-card ex-search">
             <div className="ex-search-row">
               <div className="ex-search-box">
-                <SearchBox variant="earth" onSelect={(row) => (pickSearch(row), onFly(row))} />
+                <SearchBox variant="earth" searchButton placeholder="Search any city or place" onSelect={(row) => (pickSearch(row), onFly(row))} />
               </div>
               <button type="button" className="ex-dir-btn" onClick={() => setMode('directions')} title="Directions" aria-label="Directions">
                 <Icon name="navigation" size={18} />
@@ -319,7 +342,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                     <Icon name="close" size={16} />
                   </button>
                 </header>
-                {area.loading && <p className="ex-note">Searching…</p>}
+                {area.loading && <div className="ex-skeleton" aria-label="Searching" />}
                 {area.error && <p className="ex-note">{area.error}</p>}
                 {selected && (
                   <div className="ex-place">
@@ -372,7 +395,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                 <Icon name="chevron" size={18} className="ex-back" />
               </button>
               <h3>Directions</h3>
-              <span className="mode-badge mode-online">Online</span>
+              <span className={`mode-badge mode-${online ? 'online' : 'offline'}`}>{online ? 'Online' : 'Offline'}</span>
             </header>
             {!uid ? (
               <div className="ex-signin">
@@ -432,6 +455,93 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
               </div>
             )}
           </section>
+
+          {uid && !route && !busy && (
+            <section className="ex-card ex-area ex-dir-explore">
+              {dirNearby ? (
+                <>
+                  <header className="ex-area-head">
+                    <button type="button" className="ex-icon-btn" onClick={() => setDirNearby(null)} aria-label="Back to categories">
+                      <Icon name="chevron" size={18} className="ex-back" />
+                    </button>
+                    <span className="ex-cat-badge small" style={{ '--c': dirNearby.cat.color }}>
+                      <Icon name={dirNearby.cat.icon} size={15} />
+                    </span>
+                    <h3>{dirNearby.cat.label} nearby</h3>
+                  </header>
+                  {dirNearby.loading && <div className="ex-skeleton" aria-label="Searching" />}
+                  {dirNearby.error && <p className="ex-note">{dirNearby.error}</p>}
+                  <ol className="ex-results">
+                    {dirNearby.items.map((r, i) => (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const v = { label: r.name, lat: r.lat, lng: r.lng, kind: 'search' };
+                            setEnd(v);
+                            setDirNearby(null);
+                            findRoute(v);
+                          }}
+                        >
+                          <span className="ex-num" style={{ '--c': dirNearby.cat.color }}>
+                            {i + 1}
+                          </span>
+                          <span className="ex-recent-text">
+                            <strong>{r.name}</strong>
+                            <small>{[r.type, r.address].filter(Boolean).join(' · ')}</small>
+                          </span>
+                          <span className="ex-dist">{formatKm(r.km)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              ) : (
+                <>
+                  {recent.length > 0 && (
+                    <>
+                      <h3 className="ex-sub-h">Recent</h3>
+                      <ul className="ex-recent flat">
+                        {recent.map((r) => (
+                          <li key={r.name}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const v = { label: r.name, lat: r.lat, lng: r.lng, kind: 'search' };
+                                setEnd(v);
+                                findRoute(v);
+                              }}
+                            >
+                              <Icon name="clock" size={18} className="ex-muted" />
+                              <span className="ex-recent-text">
+                                <strong>{r.name}</strong>
+                                {r.sub && <small>{r.sub}</small>}
+                              </span>
+                              <Icon name="arrowRight" size={16} className="ex-muted" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  <header className="ex-area-head">
+                    <h3>Find nearby</h3>
+                    <small className="ex-head-note">{start?.kind === 'gps' ? 'near your location' : 'near the start'}</small>
+                  </header>
+                  <div className="ex-grid">
+                    {AREA_CATEGORIES.filter((c) => c.id !== 'more').concat(MORE_CATEGORIES.slice(0, 1)).map((c) => (
+                      <button key={c.id} type="button" className="ex-cat" style={{ '--c': c.color }} onClick={() => nearbyForRoute(c)} disabled={!online}>
+                        <span className="ex-cat-badge">
+                          <Icon name={c.icon} size={22} />
+                        </span>
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
 
           {route && (
             <section className="ex-card ex-route">

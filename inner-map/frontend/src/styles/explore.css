@@ -665,3 +665,263 @@
   flex: none;
   min-height: 42px;
 }
+
+/* =====================================================================
+   Premium finish: gradient accents, layered shadows, motion, shimmer
+   ===================================================================== */
+.earth-explore {
+  --ex-grad: linear-gradient(135deg, #6366f1 0%, #3b82f6 55%, #06b6d4 100%);
+  --ex-accent: #4f46e5;
+  --ex-soft: #f1f5f9;
+  gap: 14px;
+}
+:root[data-theme='dark'] .earth-explore {
+  --ex-accent: #a5b4fc;
+  --ex-soft: #2a2d33;
+}
+.earth-explore .ex-card {
+  border-radius: 20px;
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow: 0 1px 1px rgba(2, 6, 23, 0.04), 0 14px 34px -14px rgba(2, 6, 23, 0.5);
+  animation: ex-in 0.42s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+:root[data-theme='dark'] .earth-explore .ex-card {
+  border-color: rgba(255, 255, 255, 0.06);
+}
+.earth-explore .ex-card:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.earth-explore .ex-card:nth-child(3) {
+  animation-delay: 0.12s;
+}
+@keyframes ex-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .earth-explore .ex-card {
+    animation: none;
+  }
+}
+.earth-explore h3,
+.ex-area-head h3 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.ex-sub-h {
+  margin: 0;
+  padding: 14px 16px 2px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #6b717b);
+}
+.ex-recent.flat {
+  border-top: 0;
+  padding-bottom: 2px;
+}
+.ex-head-note {
+  color: var(--muted, #6b717b);
+  font-size: var(--fs-xs);
+}
+.ex-dir-explore .ex-recent + .ex-area-head {
+  border-top: 1px solid var(--border, #e0e3e7);
+  margin-top: 4px;
+}
+
+/* search row: big friendly field + search + directions buttons */
+.ex-search-row {
+  padding: 8px 8px 8px 4px;
+  gap: 6px;
+}
+.earth .ex-search .search.search-earth input {
+  font-size: 15px;
+  padding-right: 44px;
+}
+.earth .ex-search .search.search-earth .search-clear {
+  right: 44px;
+}
+.earth .search .search-go {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--ex-accent, #4f46e5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, transform 0.15s;
+}
+.earth .search .search-go:hover {
+  background: var(--ex-grad, #4f46e5);
+  color: #fff;
+}
+.ex-dir-btn,
+.earth-explore .ex-pill.primary,
+.earth-explore .rp-find {
+  background: var(--ex-grad);
+  box-shadow: 0 8px 18px -8px rgba(79, 70, 229, 0.75);
+  transition: filter 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.ex-dir-btn:hover,
+.earth-explore .ex-pill.primary:hover,
+.earth-explore .rp-find:hover:not(:disabled) {
+  background: var(--ex-grad);
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 22px -10px rgba(79, 70, 229, 0.85);
+}
+.earth-explore .rp-find {
+  height: 46px;
+  min-height: 46px;
+  border-radius: 23px;
+  font-size: var(--fs-md);
+  letter-spacing: 0.01em;
+}
+.earth-explore .rp-find:disabled {
+  opacity: 0.45;
+  filter: saturate(0.6);
+}
+.earth-explore .ex-pill {
+  border-radius: 14px;
+  height: 40px;
+  transition: background 0.15s, transform 0.15s;
+}
+.earth-explore .ex-pill:not(.primary) {
+  color: var(--ex-accent);
+}
+
+/* directions fields + segmented travel modes */
+.earth-explore .rp-field .place-field-row input {
+  height: 44px;
+  border-radius: 14px;
+  background: var(--ex-soft);
+  font-size: 15px;
+}
+.earth-explore .rp-field .place-field-row input:focus {
+  background: var(--surface, #fff);
+  border-color: #818cf8;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16);
+}
+.earth-explore .rp-swap {
+  box-shadow: 0 2px 6px rgba(2, 6, 23, 0.12);
+}
+.earth-explore .rp-modes {
+  gap: 4px;
+  padding: 4px;
+  border-radius: 16px;
+  background: var(--ex-soft);
+}
+.earth-explore .rp-modes button {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 8px 2px 6px;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.earth-explore .rp-modes button:hover {
+  background: rgba(255, 255, 255, 0.6);
+}
+.earth-explore .rp-modes button.on {
+  background: var(--surface, #fff);
+  color: var(--ex-accent);
+  box-shadow: 0 2px 8px -2px rgba(2, 6, 23, 0.18);
+}
+:root[data-theme='dark'] .earth-explore .rp-modes button.on {
+  background: #3a3d44;
+}
+.earth-explore .rp-time {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #059669, #10b981);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.earth-explore .rp-mode-icon {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--ex-accent);
+}
+
+/* categories: soft glowing circles */
+.earth-explore .ex-cat-badge {
+  background: radial-gradient(circle at 32% 26%, color-mix(in srgb, var(--c) 26%, #fff), color-mix(in srgb, var(--c) 12%, transparent) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 16%, transparent);
+}
+:root[data-theme='dark'] .earth-explore .ex-cat-badge {
+  background: radial-gradient(circle at 32% 26%, color-mix(in srgb, var(--c) 34%, #202124), color-mix(in srgb, var(--c) 16%, transparent) 70%);
+}
+.earth-explore .ex-cat:not(:disabled):hover .ex-cat-badge {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c) 28%, transparent), 0 10px 18px -8px color-mix(in srgb, var(--c) 55%, transparent);
+}
+.earth-explore .ex-cat span:last-child {
+  font-weight: 500;
+}
+.earth-explore .ex-num {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--c) 80%, #fff), var(--c));
+}
+
+/* weather: a soft highlight over the condition gradient */
+.ex-weather {
+  position: relative;
+}
+.ex-weather::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 85% 0%, rgba(255, 255, 255, 0.22), transparent 55%);
+  pointer-events: none;
+}
+.ex-weather > * {
+  position: relative;
+}
+
+/* shimmer placeholders while something loads */
+.ex-skeleton {
+  height: 64px;
+  margin: 4px 16px 16px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(148, 163, 184, 0.16) 0%, rgba(148, 163, 184, 0.34) 50%, rgba(148, 163, 184, 0.16) 100%);
+  background-size: 200% 100%;
+  animation: ex-shimmer 1.2s linear infinite;
+}
+.ex-skeleton.light {
+  height: 58px;
+  margin: 8px 18px 10px;
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.3) 50%, rgba(255, 255, 255, 0.12) 100%);
+}
+@keyframes ex-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* the search card's results list opens over the cards below it */
+.earth-explore .ex-search {
+  position: relative;
+  z-index: 6;
+  overflow: visible;
+}
+.earth .ex-search .search-earth .search-panel {
+  top: calc(100% + 10px);
+  border-radius: 16px;
+  box-shadow: 0 18px 40px -14px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(15, 23, 42, 0.06);
+  max-height: min(60vh, 520px);
+}

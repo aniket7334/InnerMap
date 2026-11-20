@@ -3,6 +3,8 @@
 //  - "Search this area": OpenStreetMap places of a kind inside the view (Nominatim, bounded box,
 //    at most 1 request per second - the same geocoder and policy as the app's search)
 //  - the nearest named city to a point, from the world names the Earth page already has loaded
+import { isOnline } from '../offline/connectivity';
+
 const GEOCODER_URL = import.meta.env.VITE_GEOCODER_URL || 'https://nominatim.openstreetmap.org/search';
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
 let lastNominatim = 0;
@@ -50,6 +52,7 @@ export function describeWeather(code, isDay) {
 const weatherCache = new Map(); // key -> { at, promise }
 /** Current weather and today's range at a point. */
 export function fetchWeather(lat, lng) {
+  if (!isOnline()) return Promise.reject(new Error('offline'));
   const key = `${lat.toFixed(1)},${lng.toFixed(1)}`;
   const hit = weatherCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.promise;
@@ -124,7 +127,7 @@ const distanceKm = (a, b) => {
  * -> [{ id, name, type, address, lat, lng, km }] nearest to the centre first.
  */
 export async function searchArea(cat, box, center) {
-  if (!navigator.onLine) throw new Error('Searching the area needs an internet connection.');
+  if (!isOnline()) throw new Error('Searching the area needs an internet connection (or offline mode is on).');
   const half = 0.5;
   const w = Math.max(box.west, center.lng - half);
   const e = Math.min(box.east, center.lng + half);

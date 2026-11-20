@@ -8,22 +8,62 @@ const PING_URL = `${import.meta.env.VITE_API_URL || '/api'}/health`;
 const PING_INTERVAL = 30000;
 const PING_TIMEOUT = 5000;
 
-let state = {
+// Offline mode: the user can switch the app to offline on purpose (it then uses only data on
+// this device and makes no network requests). Remembered on this device.
+const OFFLINE_MODE_KEY = 'innermap.offline-mode';
+function readOfflineMode() {
+  try {
+    return localStorage.getItem(OFFLINE_MODE_KEY) === 'on';
+  } catch {
+    return false;
+  }
+}
+
+// real: what the network and the server actually do; state: what the app should act on
+let real = {
   online: typeof navigator !== 'undefined' ? navigator.onLine : true,
   apiReachable: false,
   lastChecked: null,
 };
+let offlineMode = readOfflineMode();
+const derive = () => ({
+  online: real.online && !offlineMode,
+  apiReachable: real.apiReachable && !offlineMode,
+  lastChecked: real.lastChecked,
+  offlineMode,
+  networkOnline: real.online, // the device's real connection (for "back online" notices)
+});
+let state = derive();
 const listeners = new Set();
 let timer = null;
 
 function setState(patch) {
-  const next = { ...state, ...patch };
+  const before = state;
+  real = { ...real, ...patch };
+  state = derive();
   const changed =
-    next.online !== state.online ||
-    next.apiReachable !== state.apiReachable ||
-    (state.lastChecked === null && next.lastChecked !== null); // first result is always news
-  state = next;
+    state.online !== before.online ||
+    state.apiReachable !== before.apiReachable ||
+    state.offlineMode !== before.offlineMode ||
+    state.networkOnline !== before.networkOnline ||
+    (before.lastChecked === null && state.lastChecked !== null); // first result is always news
   if (changed) listeners.forEach((fn) => fn(state));
+}
+
+/** Switch offline mode on or off (off: check the connection again straight away). */
+export function setOfflineMode(on) {
+  offlineMode = Boolean(on);
+  try {
+    localStorage.setItem(OFFLINE_MODE_KEY, offlineMode ? 'on' : 'off');
+  } catch {
+    /* private window: lasts for this visit */
+  }
+  setState({});
+  if (!offlineMode) checkNow();
+}
+
+export function isOfflineMode() {
+  return offlineMode;
 }
 
 export function getConnectivity() {
@@ -39,6 +79,11 @@ export function isApiReachable() {
 }
 
 export async function checkNow() {
+  if (offlineMode) {
+    // offline mode: no network requests (not even the health check)
+    setState({ online: navigator.onLine, lastChecked: Date.now() });
+    return state;
+  }
   if (!navigator.onLine) {
     setState({ online: false, apiReachable: false, lastChecked: Date.now() });
     return state;

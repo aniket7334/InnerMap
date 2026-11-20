@@ -290,9 +290,7 @@ export default function AppLayout() {
               {syncing ? 'Syncing…' : `${pendingCount} to sync`}
             </button>
           )}
-          <span className={`status-pill conn-${status}`} title={`${STATUS_TEXT[status]} · map: ${provider.label}`} role="status">
-            <span className="dot" /> <span className="conn-text">{STATUS_TEXT[status]}</span>
-          </span>
+          <OfflineModeToggle />
           <button type="button" className="icon-btn theme-toggle" onClick={toggleTheme} title={theme === 'dark' ? 'Light appearance' : 'Dark appearance'} aria-label={theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance'}>
             <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={18} />
           </button>

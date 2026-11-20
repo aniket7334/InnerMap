@@ -1,0 +1,178 @@
+/* Online / Offline mode switch (app header and Earth header) and the connection notice */
+.conn-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px 0 10px;
+  border: 1px solid transparent;
+  border-radius: 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.conn-toggle:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.conn-toggle:disabled {
+  cursor: default;
+}
+.conn-toggle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.conn-toggle.conn-online {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+.conn-toggle.conn-online .conn-toggle-dot {
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  animation: conn-pulse 2.2s ease-out infinite;
+}
+.conn-toggle.conn-forced {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: #4338ca;
+}
+.conn-toggle.conn-offline,
+.conn-toggle.conn-limited {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #c2410c;
+}
+:root[data-theme='dark'] .conn-toggle.conn-online {
+  background: rgba(16, 185, 129, 0.14);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #6ee7b7;
+}
+:root[data-theme='dark'] .conn-toggle.conn-forced {
+  background: rgba(129, 140, 248, 0.16);
+  border-color: rgba(129, 140, 248, 0.4);
+  color: #c7d2fe;
+}
+:root[data-theme='dark'] .conn-toggle.conn-offline,
+:root[data-theme='dark'] .conn-toggle.conn-limited {
+  background: rgba(251, 146, 60, 0.14);
+  border-color: rgba(251, 146, 60, 0.4);
+  color: #fdba74;
+}
+@keyframes conn-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(16, 185, 129, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conn-toggle.conn-online .conn-toggle-dot {
+    animation: none;
+  }
+}
+@media (max-width: 560px) {
+  .conn-toggle-text {
+    display: none;
+  }
+  .conn-toggle {
+    padding: 0 9px;
+  }
+}
+.earth-conn {
+  margin-right: 4px;
+}
+
+/* notice when the app goes offline / online */
+.conn-notice {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  z-index: 4500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(520px, calc(100% - 24px));
+  padding: 12px 10px 12px 14px;
+  border-radius: 16px;
+  background: rgba(17, 24, 39, 0.94);
+  color: #f9fafb;
+  box-shadow: 0 18px 40px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  transform: translateX(-50%);
+  animation: conn-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  font-family: var(--font);
+}
+@keyframes conn-up {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+.conn-notice-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+.tone-off .conn-notice-icon {
+  background: rgba(251, 146, 60, 0.18);
+  color: #fdba74;
+}
+.tone-on .conn-notice-icon {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+}
+.conn-notice-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.conn-notice-text strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.conn-notice-text span {
+  color: #d1d5db;
+}
+.conn-notice button {
+  flex: none;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #6366f1, #3b82f6);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.conn-notice .conn-notice-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+  background: transparent;
+  color: #9ca3af;
+}
+.conn-notice .conn-notice-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}

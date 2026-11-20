@@ -36,7 +36,7 @@ const QUICK = [
 
 const SOURCE_BADGE = { offline: 'Offline', saved: 'Saved', online: 'Online', area: 'Offline map', layer: 'Layer', coords: 'Coordinates' };
 
-export default function SearchBox({ onNavigate, onSelect, variant = 'bar' }) {
+export default function SearchBox({ onNavigate, onSelect, variant = 'bar', searchButton = false, placeholder }) {
   const { user } = useAuth();
   const uid = user?.id; // signed-out visitors (Earth start page) get online search only
   const { status } = useConnectivity();
@@ -256,7 +256,7 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar' }) {
         type="text"
         inputMode="search"
         value={query}
-        placeholder={variant === 'earth' ? 'Search InnerMap Earth' : variant === 'map' ? 'Search places, streets or coordinates' : 'Search places, streets, businesses or coordinates'}
+        placeholder={placeholder || (variant === 'earth' ? 'Search InnerMap Earth' : variant === 'map' ? 'Search places, streets or coordinates' : 'Search places, streets, businesses or coordinates')}
         aria-label="Search places"
         role="combobox"
         aria-expanded={showPanel}
@@ -281,6 +281,28 @@ export default function SearchBox({ onNavigate, onSelect, variant = 'bar' }) {
         <kbd className="search-kbd" aria-hidden="true" title="Press / to search">
           /
         </kbd>
+      )}
+      {searchButton && (
+        <button
+          type="button"
+          className="search-go"
+          onClick={() => {
+            // search button: any city, town, address or place worldwide (online), or the
+            // downloaded maps when offline - the same as pressing Enter
+            if (!q) {
+              inputRef.current?.focus();
+              setOpen(true);
+              return;
+            }
+            setOpen(true);
+            if (active >= 0 && rows[active]) go(rows[active]);
+            else runOnline();
+          }}
+          aria-label="Search"
+          title="Search for any city, town or place"
+        >
+          <Icon name="search" size={18} />
+        </button>
       )}
       {variant === 'map' && !open && (
         <div className="search-quick" role="group" aria-label="Find nearby">

@@ -64,6 +64,7 @@ import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEn
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
 import EarthExplore from '../components/EarthExplore';
+import { OfflineModeToggle } from '../components/ConnectionNotice';
 import { splashState, MIN_SHOW_MS } from '../components/splashState';
 import Icon from '../components/Icon';
 import { formatBytes } from '../offline/storage';
@@ -1325,6 +1326,7 @@ export default function GlobePage() {
         </div>
 
         <div className="earth-account">
+          <OfflineModeToggle className="earth-conn" />
           <button type="button" className="earth-icon-btn" onClick={needAccount(() => navigate('/settings'))} title="Settings" aria-label="Settings">
             <Icon name="settings" size={22} />
           </button>

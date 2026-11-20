@@ -282,7 +282,14 @@ export default function AppLayout() {
           <strong aria-current="page">{title1}</strong>
         </nav>
         {/* Offline maps has its own search over the map */}
-        {!isMapPage && routerLocation.pathname !== '/my-maps' && <SearchBox />}
+        {!isMapPage && routerLocation.pathname === '/download' && (
+          // Download area: a picked city or area becomes the area to download (no jump to the map)
+          <SearchBox
+            placeholder="Search a city or area to download"
+            onSelect={(row) => window.dispatchEvent(new CustomEvent('innermap:download-pick', { detail: row }))}
+          />
+        )}
+        {!isMapPage && routerLocation.pathname !== '/my-maps' && routerLocation.pathname !== '/download' && <SearchBox />}
         <div className="toolbar-status">
           <ToolbarGps />
           {pendingCount > 0 && (

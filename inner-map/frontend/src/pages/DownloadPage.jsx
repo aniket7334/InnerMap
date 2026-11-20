@@ -242,6 +242,25 @@ export default function DownloadPage() {
     }
   };
 
+  // a city or area picked in the search bar at the top: it becomes the area to download
+  useEffect(() => {
+    const onPick = (e) => {
+      const row = e.detail;
+      if (!row) return;
+      // places without an outline (a street, a shop): about 3 km around the point
+      const b = row.bounds || (row.lat != null ? { south: row.lat - 0.015, north: row.lat + 0.015, west: row.lng - 0.015, east: row.lng + 0.015 } : null);
+      if (!b) return;
+      setError(null);
+      setResults([]);
+      setSelection({ ...b });
+      setFitTo({ ...b });
+      setName(String(row.name || '').split(',')[0].trim());
+      setStartedId(null);
+    };
+    window.addEventListener('innermap:download-pick', onPick);
+    return () => window.removeEventListener('innermap:download-pick', onPick);
+  }, []);
+
   const pickResult = (r) => {
     setSelection(r.bounds);
     setFitTo(r.bounds);

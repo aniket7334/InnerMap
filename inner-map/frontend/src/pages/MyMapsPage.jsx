@@ -4,6 +4,10 @@ import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useRegions } from '../hooks/useRegions';
 import MapView from '../maps/MapView';
+import SearchBox from '../components/SearchBox';
+import RoutePanel from '../components/RoutePanel';
+import NavigationView from '../components/NavigationView';
+import { useLocation } from '../hooks/LocationContext';
 import Alert from '../components/Alert';
 import Icon from '../components/Icon';
 import ProgressBar from '../components/ProgressBar';
@@ -96,6 +100,44 @@ export default function MyMapsPage() {
   const [fitTo, setFitTo] = useState(null);
   useInitialFit(unionBounds(regions.map((r) => r.bounds)), setFitTo);
   const [message, setMessage] = useState(null);
+  // search + directions over the map (like the Earth page)
+  const { position, tracking } = useLocation();
+  const mapRef = useRef(null);
+  const [place, setPlace] = useState(null); // the picked search result { lat, lng, label }
+  const [routeOpen, setRouteOpen] = useState(false);
+  const [routePick, setRoutePick] = useState(null); // 'start' | 'end' | null
+  const [routePicked, setRoutePicked] = useState(null);
+  const [routeView, setRouteView] = useState({ route: null, endpoints: null });
+  const [nav, setNav] = useState(null); // turn-by-turn navigation in progress
+  const offline = status === 'offline';
+
+  const pickSearch = (row) => {
+    if (!row || row.lat == null) return;
+    const label = row.name || row.label || row.title;
+    setPlace({ lat: row.lat, lng: row.lng, label });
+    if (row.bounds) setFitTo({ ...row.bounds });
+    else mapRef.current?.setView([row.lat, row.lng], Math.max(mapRef.current.getZoom(), 16));
+  };
+  const onMapClick = (latlng) => {
+    if (!routePick) return;
+    setRoutePicked({ field: routePick, lat: latlng.lat, lng: latlng.lng, at: Date.now() });
+    setRoutePick(null);
+  };
+  // a new route: show all of it beside the Directions card (above it on phones)
+  const showRoute = (v) => {
+    setRouteView(v);
+    const g = v?.route?.geometry;
+    const map = mapRef.current;
+    if (!g?.length || !map) return;
+    const phone = map.getContainer().clientWidth < 600;
+    map.fitBounds(g, phone ? { paddingTopLeft: [24, 24], paddingBottomRight: [24, 24], maxZoom: 17 } : { paddingTopLeft: [420, 40], paddingBottomRight: [40, 40], maxZoom: 17 });
+  };
+
+  const closeRoute = () => {
+    setRouteOpen(false);
+    setRoutePick(null);
+    setRouteView({ route: null, endpoints: null });
+  };
   const [busyId, setBusyId] = useState(null);
 
   const refreshStorage = useCallback(async () => {
@@ -169,7 +211,94 @@ export default function MyMapsPage() {
   return (
     <div className="workspace page-offline-maps">
       <div className="workspace-map">
-        <MapView className="map-fill" regions={regions} fitTo={fitTo} showLocateButton={false} />
+        <MapView
+          className="map-fill"
+          regions={regions}
+          fitTo={fitTo}
+          showLocateButton={false}
+          highlight={routeOpen ? null : place}
+          route={routeView.route}
+          endpoints={routeOpen ? routeView.endpoints : null}
+          follow={Boolean(nav) && tracking}
+          onReady={(m) => (mapRef.current = m)}
+          onClick={onMapClick}
+        >
+          {nav && (
+            <NavigationView
+              userId={user.id}
+              nav={nav}
+              onRoute={(r) => setRouteView((v) => ({ ...v, route: r }))}
+              onStop={() => {
+                setRouteView((v) => ({ ...v, route: nav.route }));
+                setNav(null);
+                setRouteOpen(true);
+              }}
+            />
+          )}
+          {/* top-left: search and directions, like the Earth page */}
+          <div className={`omx ${nav ? 'hidden-while-nav' : ''}`}>
+            {!routeOpen ? (
+              <section className="omx-card">
+                <div className="omx-search-row">
+                  <div className="omx-search-box">
+                    <SearchBox
+                      variant="offline"
+                      searchButton
+                      autoPick
+                      placeholder={offline ? 'Search your offline maps' : 'Search any city or place'}
+                      onSelect={pickSearch}
+                    />
+                  </div>
+                  <button type="button" className="omx-dir-btn" onClick={() => setRouteOpen(true)} title="Directions" aria-label="Directions">
+                    <Icon name="navigation" size={18} />
+                  </button>
+                </div>
+                {place && (
+                  <div className="omx-place">
+                    <span className="omx-place-pin" aria-hidden="true">
+                      <Icon name="pin" size={16} />
+                    </span>
+                    <span className="omx-place-name">{place.label}</span>
+                    <button type="button" className="omx-chip primary" onClick={() => setRouteOpen(true)}>
+                      <Icon name="navigation" size={14} /> Directions
+                    </button>
+                    <button type="button" className="omx-x" onClick={() => setPlace(null)} aria-label="Clear the picked place">
+                      <Icon name="close" size={14} />
+                    </button>
+                  </div>
+                )}
+                <p className="omx-note">
+                  <Icon name={offline ? 'wifiOff' : 'wifi'} size={13} />
+                  {offline ? 'Offline: searching places and routing inside your downloaded maps.' : 'Online: search anywhere; directions also work offline in your downloads.'}
+                </p>
+              </section>
+            ) : (
+              <RoutePanel
+                initialEnd={place ? { lat: place.lat, lng: place.lng, label: place.label } : null}
+                userId={user.id}
+                pick={routePick}
+                setPick={setRoutePick}
+                picked={routePicked}
+                onResult={showRoute}
+                onFocusPoint={(p) => mapRef.current?.setView([p.lat, p.lng], Math.max(mapRef.current.getZoom(), 16))}
+                onStartNavigation={(n) => {
+                  setNav(n);
+                  setRouteView((v) => ({ ...v, route: n.route }));
+                  if (position && mapRef.current) mapRef.current.setView([position.lat, position.lng], Math.max(mapRef.current.getZoom(), 17));
+                }}
+                onClose={closeRoute}
+              />
+            )}
+          </div>
+          {routePick && (
+            <div className="map-hint">
+              Click the map to set the {routePick === 'start' ? 'start' : 'destination'}{' '}
+              <button type="button" className="text-btn on-dark" onClick={() => setRoutePick(null)}>
+                Cancel
+              </button>
+            </div>
+          )}
+        </MapView>
       </div>
 
       <aside className="workspace-panel">

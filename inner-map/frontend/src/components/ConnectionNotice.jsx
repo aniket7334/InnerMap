@@ -2,14 +2,18 @@
 // between online and offline - by itself (the connection dropped or came back) or because the
 // user switched offline mode.
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import Icon from './Icon';
-import { openOfflineCenter } from '../offline/offlineCenterEvents';
+import { openOfflineCenter, skipNextModeOpen } from '../offline/offlineCenterEvents';
 import '../styles/connection.css';
 
 /** Pill that shows the connection and switches offline mode on and off. */
 export function OfflineModeToggle({ className = '' }) {
   const { status, offlineMode, setOfflineMode } = useConnectivity();
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const label = offlineMode ? 'Offline mode' : status === 'offline' ? 'Offline' : status === 'limited' ? 'Server unreachable' : 'Online';
   const title = offlineMode
     ? 'Offline mode is on: InnerMap uses only maps and places stored on this device. Click to see what works offline, or to go online.'
@@ -17,7 +21,17 @@ export function OfflineModeToggle({ className = '' }) {
       ? 'No internet connection - InnerMap is using the maps and places stored on this device.'
       : 'Switch to offline mode (uses only data stored on this device).';
   // online: switch offline mode on (its screen opens by itself); offline: show the Offline mode screen
-  const onClick = () => (offlineMode || status === 'offline' ? openOfflineCenter() : setOfflineMode(true));
+  const onClick = () => {
+    if (offlineMode || status === 'offline') return openOfflineCenter();
+    // going offline: signed in, show the maps on this device (Offline maps); otherwise the
+    // Offline mode screen explains what works
+    if (user) {
+      skipNextModeOpen();
+      setOfflineMode(true);
+      return navigate('/my-maps');
+    }
+    return setOfflineMode(true);
+  };
   return (
     <button
       type="button"

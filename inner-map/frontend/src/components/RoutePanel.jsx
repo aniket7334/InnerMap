@@ -54,10 +54,11 @@ export function formatDuration(s) {
 }
 
 /** One location field: free text with a suggestion list (also used by the Earth page). */
-export function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus, marker }) {
+export function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus, marker, offlineRegionIds = [] }) {
   const [text, setText] = useState(value?.label || '');
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState({ q: '', items: [], loading: false, error: null });
+  const [local, setLocal] = useState({ q: '', items: [] }); // matches in the downloaded maps (works offline)
   const ref = useRef(null);
 
   useEffect(() => setText(value?.label || ''), [value]);
@@ -71,6 +72,23 @@ export function PlaceField({ label, value, onChange, onPick, picking, places, po
   const coord = COORD_RE.exec(text);
   const coordOk = coord && Math.abs(Number(coord[1])) <= 90 && Math.abs(Number(coord[2])) <= 180;
   const matches = places.filter((p) => !q || p.name.toLowerCase().includes(q)).slice(0, 6);
+
+  // places, streets and businesses in the downloaded maps, as you type (no internet needed)
+  const regionKey = offlineRegionIds.join(',');
+  useEffect(() => {
+    const t = text.trim();
+    if (!open || t.length < 2 || !regionKey || COORD_RE.test(text) || t === value?.label) return undefined;
+    let live = true;
+    const timer = setTimeout(() => {
+      searchOffline({ query: t, regionIds: offlineRegionIds, origin: position ? { lat: position.lat, lng: position.lng } : null, limit: 5 })
+        .then((r) => live && setLocal({ q: text, items: r.results || r }))
+        .catch(() => {});
+    }, 180);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [text, open, regionKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = (v) => {
     onChange(v);
@@ -156,6 +174,13 @@ export function PlaceField({ label, value, onChange, onPick, picking, places, po
               <span className="suggest-meta">Saved place</span>
             </button>
           ))}
+          {local.q === text &&
+            (local.items || []).map((r) => (
+              <button type="button" key={`off-${r.id}`} onClick={() => choose({ label: r.name, lat: r.lat, lng: r.lng, kind: 'search' })}>
+                <Icon name="layers" size={14} /> {r.name}
+                <span className="suggest-meta">{[r.type, r.address].filter(Boolean).join(' · ') || 'In your offline maps'}</span>
+              </button>
+            ))}
           {results.q === text &&
             results.items.map((r) => (
               <button
@@ -169,7 +194,7 @@ export function PlaceField({ label, value, onChange, onPick, picking, places, po
           {q && !coordOk && (
             <button type="button" className="suggest-search" onClick={search} disabled={!online || results.loading}>
               {!online
-                ? 'Address search needs internet - use a saved place, the map or coordinates'
+                ? (local.q === text && (local.items || []).length ? 'Other addresses need internet' : 'Address search needs internet - use a saved place, the map or coordinates')
                 : results.loading
                   ? 'Searching...'
                   : results.error && results.q === text
@@ -383,6 +408,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
                 places={locations}
                 position={position}
                 online={online}
+                offlineRegionIds={indexedIds}
               />
               <PlaceField
                 label="Destination"
@@ -397,6 +423,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
                 places={locations}
                 position={position}
                 online={online}
+                offlineRegionIds={indexedIds}
                 autoFocus
               />
               <button type="button" className="rp-swap" onClick={swap} title="Swap start and destination" aria-label="Swap start and destination">

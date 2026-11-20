@@ -11,7 +11,7 @@ import { getCachedLocations } from '../services/locationService';
 import { checkNow } from '../offline/connectivity';
 import { formatBytes, getStorageEstimate } from '../offline/storage';
 import { getCachedManifest, refreshManifest, regionsWithUpdates } from '../offline/offlineManifest';
-import { OPEN_OFFLINE_CENTER } from '../offline/offlineCenterEvents';
+import { OPEN_OFFLINE_CENTER, takeSkipModeOpen } from '../offline/offlineCenterEvents';
 import Icon from './Icon';
 import '../styles/offline.css';
 
@@ -64,7 +64,9 @@ export default function OfflineCenter() {
       if (!networkOnline && !offlineMode) show('nonet');
       return;
     }
-    if (offlineMode && !p.offlineMode) show('mode');
+    if (offlineMode && !p.offlineMode) {
+      if (!takeSkipModeOpen()) show('mode'); // the Offline button went to Offline maps instead
+    }
     else if (!offlineMode && p.networkOnline && !networkOnline) show('nonet');
     else if (networkOnline && !p.networkOnline && reason === 'nonet') setOpen(false); // connection back
     else if (!offlineMode && p.offlineMode && reason === 'mode') setOpen(false); // went online

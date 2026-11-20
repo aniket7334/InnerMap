@@ -4062,3 +4062,202 @@ html.no-scroll body {
     animation: none;
   }
 }
+
+/* Offline maps: search and directions floating over the map (the Earth page's look) */
+.omx {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 900;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100% - 84px));
+  max-height: calc(100% - 28px);
+  pointer-events: none;
+}
+.omx > * {
+  pointer-events: auto;
+}
+.omx .route-panel.rp {
+  width: 100%;
+  max-height: calc(100dvh - 140px);
+}
+.omx-card {
+  border-radius: 18px;
+  background: var(--surface, #fff);
+  color: var(--text, #0f172a);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), 0 10px 28px -8px rgba(15, 23, 42, 0.3);
+}
+.omx-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 7px 7px 4px;
+}
+.omx-search-box {
+  flex: 1;
+  min-width: 0;
+}
+.omx .search.search-offline input {
+  min-height: 44px;
+  padding-left: 42px;
+  padding-right: 80px;
+  border: 0;
+  border-radius: 22px;
+  background: transparent;
+  font-size: 15px;
+  box-shadow: none;
+}
+.omx .search.search-offline input:focus {
+  box-shadow: none;
+}
+.omx .search.search-offline .search-icon {
+  left: 14px;
+}
+.omx .search.search-offline .search-kbd {
+  display: none;
+}
+.omx .search.search-offline .search-clear {
+  right: 44px;
+}
+.omx .search .search-go {
+  position: absolute;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.1);
+  color: #4f46e5;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.omx .search .search-go:hover {
+  background: linear-gradient(135deg, #6366f1, #3b82f6 55%, #06b6d4);
+  color: #fff;
+}
+.omx .search.search-offline .search-panel {
+  left: -4px;
+  right: -52px;
+  width: auto;
+  min-width: 0;
+  z-index: 40;
+}
+.omx-dir-btn {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #6366f1, #3b82f6 55%, #06b6d4);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 8px 18px -8px rgba(79, 70, 229, 0.75);
+  transition: filter 0.15s, transform 0.15s;
+}
+.omx-dir-btn:hover {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+}
+.omx-place {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+.omx-place-pin {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(234, 67, 53, 0.12);
+  color: #ea4335;
+}
+.omx-place-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.omx-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.omx-chip.primary {
+  background: linear-gradient(135deg, #6366f1, #3b82f6 55%, #06b6d4);
+  color: #fff;
+}
+.omx-x {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+}
+.omx-x:hover {
+  background: color-mix(in srgb, var(--muted, #64748b) 14%, transparent);
+}
+.omx-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  color: var(--muted, #64748b);
+  font-size: 12px;
+}
+:root[data-theme='dark'] .omx-card {
+  background: #202124;
+  color: #e8eaed;
+}
+@media (max-width: 760px) {
+  .omx {
+    top: 10px;
+    left: 10px;
+    width: calc(100% - 68px);
+  }
+  .omx-note {
+    display: none;
+  }
+  /* phones: the map is short - the Directions card stays inside it and scrolls */
+  .omx:has(.route-panel) {
+    bottom: 10px;
+    max-height: none;
+    z-index: 1001; /* above the map's scale and attribution */
+  }
+  .omx .route-panel.rp {
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}

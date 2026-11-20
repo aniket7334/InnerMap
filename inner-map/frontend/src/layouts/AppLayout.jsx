@@ -281,7 +281,8 @@ export default function AppLayout() {
           <Icon name="chevron" size={14} />
           <strong aria-current="page">{title1}</strong>
         </nav>
-        {!isMapPage && <SearchBox />}
+        {/* Offline maps has its own search over the map */}
+        {!isMapPage && routerLocation.pathname !== '/my-maps' && <SearchBox />}
         <div className="toolbar-status">
           <ToolbarGps />
           {pendingCount > 0 && (

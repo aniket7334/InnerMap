@@ -108,3 +108,97 @@ export async function directRoute(profile, from, to) {
   }
   return route;
 }
+
+// ---------------------------------------------------------------- alternative routes
+function normalize(r, label) {
+  const roads = [...new Set(r.legs.map((l) => l.summary).join(', ').split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 2);
+  return {
+    provider: 'osrm',
+    providerLabel: 'OSRM (FOSSGIS routing.openstreetmap.de)',
+    attribution: '© OpenStreetMap contributors · routing by FOSSGIS e.V. OSRM servers',
+    distance: Math.round(r.distance),
+    duration: Math.round(r.duration),
+    durationIsEstimate: false,
+    geometry: r.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+    steps: r.legs.flatMap((leg) =>
+      leg.steps.map((s) => ({ text: stepText(s), distance: Math.round(s.distance), lat: s.maneuver.location[1], lng: s.maneuver.location[0] }))
+    ),
+    via: roads.join(', '),
+    label,
+    direct: true,
+  };
+}
+
+async function osrm(profile, coords, extra = '') {
+  const base = BASE[profile === 'motorcycle' ? 'car' : profile] || BASE.car;
+  const url = `${base}/route/v1/driving/${coords.map((c) => `${c.lng},${c.lat}`).join(';')}?overview=full&geometries=geojson&steps=true${extra}`;
+  const res = await throttle(() => fetch(url));
+  const data = await res.json().catch(() => ({}));
+  return res.ok && data.code === 'Ok' ? data.routes || [] : [];
+}
+
+const R = 6371000;
+const toRad = (d) => (d * Math.PI) / 180;
+function metres(a, b) {
+  const dLat = toRad(b[0] - a[0]);
+  const dLng = toRad(b[1] - a[1]);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+/** Share of route b lying within `near` metres of route a (sampled). */
+function overlap(a, b, near) {
+  const step = Math.max(1, Math.floor(b.length / 60));
+  const aStep = Math.max(1, Math.floor(a.length / 400));
+  const aPts = a.filter((_, i) => i % aStep === 0);
+  let hit = 0;
+  let n = 0;
+  for (let i = 0; i < b.length; i += step) {
+    n++;
+    if (aPts.some((p) => metres(p, b[i]) < near)) hit++;
+  }
+  return n ? hit / n : 1;
+}
+
+/**
+ * Up to three different real routes between two points, fastest first:
+ * the service's own alternatives, then - if needed - routes via points on either side of the
+ * direct line (they follow other main roads / expressways). Near-copies and big detours are
+ * dropped. Calls arrive one per second, so onUpdate(list) reports routes as they come in.
+ */
+export async function directAlternatives(profile, from, to, onUpdate) {
+  const list = [];
+  const straight = metres([from.lat, from.lng], [to.lat, to.lng]);
+  const near = Math.max(120, Math.min(2000, straight * 0.02));
+  const add = (r) => {
+    const g = r.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+    if (list.length && r.duration > list[0].duration * 1.6) return false; // a big detour is no real option
+    if (list.some((o) => overlap(o.geometry, g, near) > 0.8)) return false; // the same road again
+    list.push(normalize(r, list.length ? 'Alternative' : 'Fastest'));
+    list.sort((x, y) => x.duration - y.duration);
+    list.forEach((x, i) => (x.label = i === 0 ? 'Fastest' : 'Alternative'));
+    onUpdate?.([...list]);
+    return true;
+  };
+  for (const r of await osrm(profile, [from, to], '&alternatives=true')) add(r);
+  if (list.length >= 3 || straight < 3000) return list;
+  // via points: halfway, pushed sideways by ~15% of the distance (both sides)
+  const mid = { lat: (from.lat + to.lat) / 2, lng: (from.lng + to.lng) / 2 };
+  const kx = Math.cos(toRad(mid.lat));
+  const dx = (to.lng - from.lng) * kx;
+  const dy = to.lat - from.lat;
+  const len = Math.hypot(dx, dy) || 1;
+  for (const side of [1, -1]) {
+    if (list.length >= 3) break;
+    const off = 0.15 * len * side;
+    const via = { lat: mid.lat + (dx / len) * off, lng: mid.lng + (-dy / len) * off / kx };
+    const [r] = await osrm(profile, [from, via, to]);
+    if (r) add(r);
+  }
+  return list;
+}
+
+// ---------------------------------------------------------------- the ways to travel a long trip
+/** Straight-line distance in km between two points. */
+export function straightKm(a, b) {
+  return metres([a.lat, a.lng], [b.lat, b.lng]) / 1000;
+}

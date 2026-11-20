@@ -9,6 +9,8 @@ import { PlaceField, formatDuration } from './RoutePanel';
 import { useLocation } from '../hooks/LocationContext';
 import { useSavedLocations } from '../hooks/useSavedLocations';
 import { calculateRoute, RouteError } from '../routing/routingManager';
+import { directAlternatives, straightKm } from '../routing/directOsrm';
+import EarthPlaceCard from './EarthPlaceCard';
 import { formatDistance } from '../maps/geo';
 import { AREA_CATEGORIES, MORE_CATEGORIES, describeWeather, fetchWeather, formatKm, nearestCity, searchArea } from '../globe/exploreSearch';
 import '../styles/explore.css';
@@ -121,9 +123,14 @@ function Weather({ online, center, worldNames }) {
   );
 }
 
-export default function EarthExplore({ uid, online, worldNames, center, getViewBox, onFly, results, onResults, selected, onSelect, onRoute, onNeedAccount, onOpenMap }) {
+export default function EarthExplore({ uid, online, worldNames, center, getViewBox, onFly, results, onResults, selected, onSelect, onRoute, onNeedAccount, onOpenMap, onOpenPhoto }) {
   const { position, locateOnce } = useLocation();
-  const { locations } = useSavedLocations(uid);
+  const { locations, add: addSaved } = useSavedLocations(uid);
+  const [place, setPlace] = useState(null); // searched place shown as a card
+  const [alts, setAlts] = useState([]); // alternative routes (fastest first)
+  const [altIndex, setAltIndex] = useState(0);
+  const [ways, setWays] = useState(null); // { kind, loading, from, to, error } - train / bus / flight
+  const routeSeq = useRef(0);
   const [mode, setMode] = useState('explore'); // explore | directions
   const [areaOpen, setAreaOpen] = useState(true);
   const [moreCats, setMoreCats] = useState(false);
@@ -208,8 +215,21 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
       const full = { ...r, profile: prof, calculatedAt: Date.now(), from, to };
       setRoute(full);
       setStepsOpen(false);
-      onRoute(full);
+      setAlts([]);
+      setAltIndex(0);
+      setWays(null);
+      onRoute(full, true, []);
       if (dest?.label) remember({ name: dest.label, lat: to.lat, lng: to.lng, sub: 'Destination' });
+      // other roads to the same place (expressways, highways...) - online, as they arrive
+      const seq = ++routeSeq.current;
+      if (online && full.mode === 'online') {
+        directAlternatives(prof, from, to, (list) => {
+          if (seq !== routeSeq.current || list.length < 2) return;
+          setAlts(list);
+          // keep showing the route on screen; draw the others in grey
+          onRoute(full, false, list.slice(1));
+        }).catch(() => {});
+      }
     } catch (err) {
       setRoute(null);
       onRoute(null);
@@ -218,6 +238,30 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
       setBusy(false);
     }
   };
+  const chooseAlt = (i) => {
+    const a = alts[i];
+    if (!a || !route) return;
+    setAltIndex(i);
+    const next = { ...a, mode: 'online', profile: route.profile, calculatedAt: Date.now(), from: route.from, to: route.to };
+    setRoute(next);
+    onRoute(next, false, alts.filter((_, j) => j !== i));
+  };
+  // train / bus / flight: the nearest stations at both ends (no timetables - none are available)
+  const loadWays = async (kind) => {
+    if (!route) return;
+    const q = { train: { q: 'railway station', label: 'Railway stations' }, bus: { q: 'bus station', label: 'Bus stations' }, flight: { q: 'airport', label: 'Airports' } }[kind];
+    const d = kind === 'flight' ? 0.6 : 0.25;
+    setWays({ kind, loading: true });
+    try {
+      const near = async (p) => (await searchArea(q, { west: p.lng - d, east: p.lng + d, south: p.lat - d, north: p.lat + d }, p))[0] || null;
+      const a = await near(route.from);
+      const b = await near(route.to);
+      setWays({ kind, loading: false, from: a, to: b, error: !a || !b ? `No ${q.label.toLowerCase()} found near ${!a ? 'the start' : 'the destination'}.` : null });
+    } catch (err) {
+      setWays({ kind, loading: false, error: err.message });
+    }
+  };
+
   const directionsTo = (p) => {
     const v = { label: p.name, lat: p.lat, lng: p.lng, kind: 'search' };
     setMode('directions');
@@ -249,6 +293,9 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
     }
   };
   const closeDirections = () => {
+    routeSeq.current++;
+    setAlts([]);
+    setWays(null);
     setMode('explore');
     setRoute(null);
     setRouteErr(null);
@@ -271,7 +318,7 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
           <section className="ex-card ex-search">
             <div className="ex-search-row">
               <div className="ex-search-box">
-                <SearchBox variant="earth" searchButton placeholder="Search any city or place" onSelect={(row) => (pickSearch(row), onFly(row))} />
+                <SearchBox variant="earth" searchButton placeholder="Search any city or place" onSelect={(row) => (pickSearch(row), setPlace(row?.lat != null ? row : null), onFly(row))} />
               </div>
               <button type="button" className="ex-dir-btn" onClick={() => setMode('directions')} title="Directions" aria-label="Directions">
                 <Icon name="navigation" size={18} />
@@ -295,11 +342,40 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
             )}
           </section>
 
+          {/* ---------- the searched place */}
+          {place && (
+            <EarthPlaceCard
+              row={place}
+              online={online}
+              uid={uid}
+              onClose={() => setPlace(null)}
+              onDirections={(p) => {
+                setPlace(null);
+                directionsTo(p);
+              }}
+              onSave={async (p) => {
+                if (!uid) {
+                  onNeedAccount();
+                  return false;
+                }
+                await addSaved({ name: p.name.slice(0, 100), latitude: p.lat, longitude: p.lng });
+                return true;
+              }}
+              onNearby={(p) => {
+                setPlace(null);
+                setArea(null);
+                setAreaOpen(true);
+                onFly({ lat: p.lat, lng: p.lng, zoom: 14 });
+              }}
+              onOpenPhoto={onOpenPhoto}
+            />
+          )}
+
           {/* ---------- weather */}
-          <Weather online={online} center={center} worldNames={worldNames} />
+          {!place && <Weather online={online} center={center} worldNames={worldNames} />}
 
           {/* ---------- search this area */}
-          <section className="ex-card ex-area" aria-label="Search this area">
+          <section className={`ex-card ex-area ${place ? 'ex-hidden' : ''}`} aria-label="Search this area">
             {!area ? (
               <>
                 <header className="ex-area-head">
@@ -551,12 +627,79 @@ export default function EarthExplore({ uid, online, worldNames, center, getViewB
                 <span className="rp-marker rp-marker-end" aria-hidden="true" />
                 <span>{end?.label || 'Destination'}</span>
               </div>
-              <p className="ex-note">Online · {route.providerLabel}</p>
+              <p className="ex-note">
+                {route.mode === 'online' ? 'Online' : 'Offline'} · {route.providerLabel}
+              </p>
+              {route.profileNote && <p className="ex-note ex-warn">{route.profileNote}</p>}
+
+              {alts.length > 1 && (
+                <div className="ex-alts" role="radiogroup" aria-label="Routes">
+                  {alts.map((a, i) => (
+                    <button key={i} type="button" role="radio" aria-checked={altIndex === i} className={altIndex === i ? 'on' : ''} onClick={() => chooseAlt(i)}>
+                      <span className="ex-alt-main">
+                        <strong>{formatDuration(a.duration)}</strong>
+                        <span>{formatDistance(a.distance)}</span>
+                      </span>
+                      <span className="ex-alt-via">
+                        {i === 0 ? 'Fastest' : `+${formatDuration(a.duration - alts[0].duration)}`}
+                        {a.via ? ` · via ${a.via}` : ''}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {route.from && route.to && straightKm(route.from, route.to) > 60 && (
+                <div className="ex-ways">
+                  <h4>Other ways to get there</h4>
+                  <div className="ex-ways-row">
+                    {[
+                      ['train', 'Train', 'train'],
+                      ['bus', 'Bus', 'car'],
+                      ...(straightKm(route.from, route.to) > 300 ? [['flight', 'Flight', 'navigation']] : []),
+                    ].map(([k, label, icon]) => (
+                      <button key={k} type="button" className={ways?.kind === k ? 'on' : ''} onClick={() => loadWays(k)} disabled={!online}>
+                        <Icon name={icon} size={16} /> {label}
+                      </button>
+                    ))}
+                  </div>
+                  {ways?.loading && <div className="ex-skeleton" />}
+                  {ways && !ways.loading && (
+                    <div className="ex-ways-result">
+                      {ways.error && <p className="ex-note">{ways.error}</p>}
+                      {ways.from && ways.to && (
+                        <>
+                          <div className="ex-ways-leg">
+                            <span className="ex-ways-dot" />
+                            <div>
+                              <strong>{ways.from.name}</strong>
+                              <small>{ways.from.km.toFixed(1)} km from the start</small>
+                            </div>
+                            <button type="button" className="ex-pill" onClick={() => directionsTo({ name: ways.from.name, lat: ways.from.lat, lng: ways.from.lng })}>
+                              Route there
+                            </button>
+                          </div>
+                          <div className="ex-ways-leg">
+                            <span className="ex-ways-dot end" />
+                            <div>
+                              <strong>{ways.to.name}</strong>
+                              <small>{ways.to.km.toFixed(1)} km from the destination</small>
+                            </div>
+                          </div>
+                          <p className="ex-note">
+                            About {Math.round(straightKm(ways.from, ways.to))} km apart in a straight line. Timetables, fares and tickets are not available in InnerMap - check the operator.
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="ex-place-actions">
                 <button type="button" className="ex-pill primary" onClick={() => onOpenMap(route, end)}>
                   <Icon name="map" size={16} /> Navigate in 2D map
                 </button>
-                <button type="button" className="ex-pill" onClick={() => onRoute(route, true)}>
+                <button type="button" className="ex-pill" onClick={() => onRoute(route, true, alts.filter((_, j) => j !== altIndex))}>
                   <Icon name="crosshair" size={16} /> Show route
                 </button>
               </div>

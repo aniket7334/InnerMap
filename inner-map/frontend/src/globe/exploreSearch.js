@@ -8,6 +8,17 @@ import { isOnline } from '../offline/connectivity';
 const GEOCODER_URL = import.meta.env.VITE_GEOCODER_URL || 'https://nominatim.openstreetmap.org/search';
 const WEATHER_URL = 'https://api.open-meteo.com/v1/forecast';
 let lastNominatim = 0;
+/** Nominatim request at most once per second (its usage policy) - shared by the Earth page's lookups. */
+export async function nominatim(path, params) {
+  const wait = 1100 - (Date.now() - lastNominatim);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  lastNominatim = Date.now();
+  const base = GEOCODER_URL.replace(/\/search\/?$/, '');
+  const res = await fetch(`${base}/${path}?${new URLSearchParams({ format: 'jsonv2', ...params })}`, { headers: { Accept: 'application/json' } });
+  if (res.status === 429) throw new Error('The search service is busy. Try again in a minute.');
+  if (!res.ok) throw new Error(`Search failed (HTTP ${res.status}).`);
+  return res.json();
+}
 
 // ---------------------------------------------------------------- nearest city (offline)
 /** Nearest city in the world-names data: { name, lat, lng, km } or null. */
@@ -78,6 +89,7 @@ export function fetchWeather(lat, lng) {
         max: d.daily?.temperature_2m_max?.[0],
         min: d.daily?.temperature_2m_min?.[0],
         units: { temp: d.current_units?.temperature_2m || '°C', wind: d.current_units?.wind_speed_10m || 'km/h' },
+        utcOffset: d.utc_offset_seconds ?? null, // the place's local time = now + this offset
       };
     })
     .catch((err) => {

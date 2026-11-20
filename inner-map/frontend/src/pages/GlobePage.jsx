@@ -91,6 +91,11 @@ function readBasemap() {
     return {};
   }
 }
+const formatRouteTime = (sec) => {
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${Math.max(1, m)} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+};
+
 /** Map pin with a number (search results) as an image for the globe. */
 const pinCache = new Map();
 function numberedPin(n, color, big) {
@@ -1092,10 +1097,12 @@ export default function GlobePage() {
     if (r) flyToPoint(r.lat, r.lng, Math.min(Math.max(camera.height || 3000, 900), 4000), 1.4);
   };
   // the route on the globe
-  const showRoute = (route, fly) => {
+  const showRoute = (route, fly, alternatives = []) => {
     const ds = sourcesRef.current.exploreRoute;
     const viewer = viewerRef.current;
     setExploreRoute(route);
+    // phones: close the sheet so the route itself is in view (the route bar below reopens it)
+    if (route && fly !== false && window.matchMedia?.('(max-width: 820px), (max-height: 500px)').matches) setExploreOpen(false);
     if (!ds || !viewer) return;
     ds.entities.removeAll();
     if (!route?.geometry?.length) {
@@ -1104,6 +1111,14 @@ export default function GlobePage() {
     }
     // drawn a few metres above the surface and also where hills would hide it (depth-fail
     // material): appears at once, without waiting for ground data like a clamped line does
+    // the other routes first, in grey, under the chosen one
+    for (const alt of alternatives) {
+      if (!alt?.geometry?.length) continue;
+      const ap = [];
+      for (const [lat, lng] of alt.geometry) ap.push(lng, lat, 3);
+      const altMaterial = new PolylineOutlineMaterialProperty({ color: Color.fromCssColorString('#9aa9bf'), outlineColor: Color.fromCssColorString('#5b6b80'), outlineWidth: 1.5 });
+      ds.entities.add({ polyline: { positions: Cartesian3.fromDegreesArrayHeights(ap), width: 6, arcType: ArcType.GEODESIC, material: altMaterial, depthFailMaterial: altMaterial } });
+    }
     const pts = [];
     for (const [lat, lng] of route.geometry) pts.push(lng, lat, 4);
     const routeMaterial = new PolylineOutlineMaterialProperty({ color: Color.fromCssColorString('#1a73e8'), outlineColor: Color.WHITE, outlineWidth: 2 });
@@ -1135,7 +1150,13 @@ export default function GlobePage() {
         e = Math.max(e, lng);
       }
       const pad = Math.max(n - s, e - w) * 0.25 + 0.002;
-      flyToBounds({ south: s - pad, north: n + pad, west: w - pad, east: e + pad }, 1.8);
+      // the route goes in the part of the screen the panel does not cover (desktop)
+      let westPad = pad;
+      const canvasW = viewer.scene.canvas.clientWidth;
+      const panel = document.querySelector('.earth-explore-wrap');
+      const covered = panel && getComputedStyle(panel).display !== 'none' && !window.matchMedia?.('(max-width: 820px), (max-height: 500px)').matches ? panel.getBoundingClientRect().right + 16 : 0;
+      if (covered && canvasW > covered + 200) westPad = pad + ((e - w + 2 * pad) * covered) / (canvasW - covered);
+      flyToBounds({ south: s - pad, north: n + pad, west: w - westPad, east: e + pad }, 1.8);
     }
     viewer.scene.requestRender();
     // the ground-hugging line is built in the background: redraw a few times until it shows
@@ -1415,19 +1436,6 @@ export default function GlobePage() {
       <div ref={containerRef} className="earth-canvas" />
       <div ref={photoLayerRef} className="earth-photo-layer" aria-label="Photos on the globe" />
 
-      {mapStyle !== 'map' && (
-        <button
-          type="button"
-          className={`earth-photos-toggle ${photosActive ? 'on' : ''}`}
-          onClick={() => togglePhotos(!photosActive)}
-          aria-pressed={photosActive}
-          title={photosActive ? 'Hide photos' : 'Show photos of famous places (online)'}
-        >
-          <Icon name="photo" size={18} />
-          <span>Photos</span>
-          <span className="earth-switch" aria-hidden="true" />
-        </button>
-      )}
       {photosActive && (
         <PhotoStrip
           photos={photos}
@@ -1477,8 +1485,23 @@ export default function GlobePage() {
           onRoute={showRoute}
           onNeedAccount={() => navigate('/login', { state: { from: '/' } })}
           onOpenMap={openRouteInMap}
+          onOpenPhoto={(p) => setViewing(p)}
         />
       </div>
+      {exploreRoute && !exploreOpen && (
+        <div className="earth-route-bar" role="status">
+          <span className="earth-route-bar-icon">
+            <Icon name="navigation" size={18} />
+          </span>
+          <div>
+            <strong>{formatRouteTime(exploreRoute.duration)}</strong>
+            <span>{exploreRoute.distance >= 1000 ? `${(exploreRoute.distance / 1000).toFixed(exploreRoute.distance >= 100000 ? 0 : 1)} km` : `${exploreRoute.distance} m`}</span>
+          </div>
+          <button type="button" onClick={() => setExploreOpen(true)}>
+            Details
+          </button>
+        </div>
+      )}
       <button type="button" className="earth-explore-fab" onClick={() => setExploreOpen(true)} aria-label="Explore: weather, nearby places, directions">
         <Icon name="compass" size={18} /> Explore
       </button>

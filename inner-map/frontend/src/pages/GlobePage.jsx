@@ -61,7 +61,7 @@ import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
 import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
-import { splashState } from '../components/splashState';
+import { splashState, MIN_SHOW_MS } from '../components/splashState';
 import Icon from '../components/Icon';
 import { formatBytes } from '../offline/storage';
 import { confirmDialog } from '../components/ConfirmDialog';
@@ -209,7 +209,6 @@ export default function GlobePage() {
   const introDone = useRef(false);
   // Loading screen: 'show' until the first imagery is on screen, then 'leaving' (fade + fly-in), then 'gone'.
   const [splash, setSplash] = useState('show');
-  const splashShownAt = useRef(Date.now());
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
@@ -465,7 +464,9 @@ export default function GlobePage() {
     const finish = () => {
       if (done) return;
       done = true;
-      const wait = Math.max(0, 1000 - (Date.now() - splashShownAt.current));
+      // the loading screen plays its animation in full, even when everything loads at once
+      const s = splashState.get();
+      const wait = Math.max(0, (MIN_SHOW_MS[s.mode] || 1000) - (performance.now() - s.startedAt));
       timers.push(setTimeout(() => setSplash((s) => (s === 'show' ? 'leaving' : s)), wait));
     };
     const check = () => {

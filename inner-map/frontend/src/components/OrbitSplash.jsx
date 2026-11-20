@@ -34,15 +34,15 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { useSplashState } from './splashState';
+import { useSplashState, MIN_SHOW_MS, stepFor } from './splashState';
 import { OrbitLiteScene } from './OrbitSplashLite';
 
 const R_EARTH = 6371000;
 const ORBIT_R = 1.55;
 const TRAIL = 90;
 const START_LON = 78.9; // the app opens over South Asia
-const HANDOVER_MS = 2200;
-const FADE_MS = 550;
+const HANDOVER_MS = 2800;
+const FADE_MS = 700;
 
 const ease = (k) => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -228,12 +228,18 @@ export default function OrbitSplash({ onDone, onFail }) {
       const t = (now - t0) / 1000;
 
       // progress: the real steps; a gentle creep while the 3D code itself downloads
-      const target = s.phase === 'loading' ? Math.max(s.progress, Math.min(t / 14, 0.3)) * (imagesReady ? 1 : 0.9) : 1;
-      shown += (target - shown) * 0.08;
+      // progress: the real steps, paced so the bar fills steadily over the minimum show time
+      // (time-based, so it runs the same on every screen refresh rate)
+      const paced = Math.min(1, (now - s.startedAt) / MIN_SHOW_MS['3d']);
+      const real = Math.max(s.progress, Math.min(t / 14, 0.3)) * (imagesReady ? 1 : 0.9);
+      // may run a little ahead of the real progress (which arrives in bursts), never to 100%
+      // before the globe is really ready
+      const target = s.phase === 'loading' ? Math.min(paced, real + 0.25, 0.97) : 1;
+      shown += (target - shown) * (1 - Math.exp(-dt * 5));
       const pct = Math.round(shown * 100);
       if (barRef.current) barRef.current.style.width = `${pct}%`;
       if (pctRef.current) pctRef.current.textContent = `${pct}%`;
-      if (statusRef.current) statusRef.current.textContent = s.phase === 'loading' ? s.step : 'Ready';
+      if (statusRef.current) statusRef.current.textContent = s.phase === 'loading' ? stepFor(Math.min(shown, 0.99)) : 'Ready';
 
       if (imagesReady && earthMat.uniforms.reveal.value < 1) {
         earthMat.uniforms.reveal.value = Math.min(1, earthMat.uniforms.reveal.value + dt / 0.6);

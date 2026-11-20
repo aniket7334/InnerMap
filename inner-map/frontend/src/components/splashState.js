@@ -8,7 +8,19 @@
 //   mode:     '3d' (the orbit loading screen) or '2d' (the light one)
 import { useSyncExternalStore } from 'react';
 
-const initial = () => ({ phase: 'loading', progress: 0, step: 'Starting the 3D engine', handover: null, mode: '2d' });
+const initial = () => ({ phase: 'loading', progress: 0, step: 'Starting the 3D engine', handover: null, mode: '2d', startedAt: performance.now() });
+
+/** Shortest time the loading screen shows, so its animation plays in full even when the globe
+ *  loads at once (from the cache): 3D orbit / light version. Slower loading simply takes longer. */
+export const MIN_SHOW_MS = { '3d': 5200, '2d': 2500 };
+
+/** Loading step shown for a progress value (the bar and the text always agree). */
+export function stepFor(p) {
+  if (p < 0.35) return 'Starting the 3D engine';
+  if (p < 0.8) return 'Loading satellite imagery';
+  if (p < 0.995) return 'Placing country and city names';
+  return 'Ready';
+}
 let state = initial();
 const listeners = new Set();
 

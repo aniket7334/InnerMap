@@ -3,7 +3,7 @@
 // and the real progress. Used on devices without 3D / with little memory / "reduce motion", and as
 // the first frame while the 3D version downloads (that one then fades in over this scene).
 import { useEffect, useRef, useState } from 'react';
-import { useSplashState } from './splashState';
+import { useSplashState, MIN_SHOW_MS, stepFor } from './splashState';
 
 function useGlobeSize() {
   const get = () => Math.round(Math.min(window.innerHeight * 0.5, window.innerWidth * 0.56));
@@ -60,8 +60,10 @@ export default function OrbitSplashLite() {
       return undefined;
     }
     const id = setInterval(() => {
-      const creep = Math.min((performance.now() - start.current) / 14000, 0.3);
-      setShown((v) => Math.max(v, s.progress, creep));
+      const now = performance.now();
+      const creep = Math.min((now - start.current) / 14000, 0.3);
+      const paced = Math.min(1, (now - s.startedAt) / MIN_SHOW_MS['2d']);
+      setShown((v) => Math.max(v, Math.min(paced, Math.max(s.progress, creep) + 0.25, 0.97)));
     }, 200);
     return () => clearInterval(id);
   }, [s.phase, s.progress]);
@@ -78,7 +80,7 @@ export default function OrbitSplashLite() {
           <span style={{ width: `${pct}%` }} />
         </div>
         <div className="orbit-splash-status">
-          <span>{s.phase === 'loading' ? s.step : 'Ready'}</span>
+          <span>{s.phase === 'loading' ? stepFor(Math.min(shown, 0.99)) : 'Ready'}</span>
           <span className="orbit-splash-pct">{pct}%</span>
         </div>
       </div>

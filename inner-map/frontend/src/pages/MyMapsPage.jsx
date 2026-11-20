@@ -1,27 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/AuthContext';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useRegions } from '../hooks/useRegions';
 import MapView from '../maps/MapView';
 import Alert from '../components/Alert';
+import Icon from '../components/Icon';
 import ProgressBar from '../components/ProgressBar';
 import { useInitialFit, unionBounds } from '../hooks/useInitialFit';
 import { providerForRegion } from '../maps/providers';
-import { boundsAreaKm2 } from '../maps/tileMath';
-import { useMapProvider } from '../hooks/ProviderContext';
-import { cancelDownload, deleteRegion, resumeDownload, downloadRoutingData, pauseDownload, addPacks, removePack, isDownloading, PACKS } from '../offline/downloadManager';
-import { cleanupOrphanTiles, countStoredTiles } from '../offline/tileStore';
+import { cancelDownload, deleteRegion, resumeDownload, pauseDownload, isDownloading } from '../offline/downloadManager';
+import { cleanupOrphanTiles } from '../offline/tileStore';
 import { listAllRegionIds } from '../offline/regionStore';
-import { formatBytes, getStorageEstimate, isPersisted, requestPersistentStorage } from '../offline/storage';
+import { formatBytes, getStorageEstimate } from '../offline/storage';
 import { listServerMaps, deleteServerMap } from '../services/mapService';
 import { errorMessage } from '../services/api';
 import { confirmDialog } from '../components/ConfirmDialog';
 import { subscribePending } from '../offline/syncService';
 
+// what a map that is not ready shows in place of its size
 const STATUS_LABEL = {
   downloading: 'Downloading',
-  completed: 'Ready offline',
   partial: 'Partly downloaded',
   interrupted: 'Interrupted',
   cancelled: 'Cancelled',
@@ -30,21 +29,60 @@ const STATUS_LABEL = {
   pending: 'Waiting',
 };
 
-const coverageText = (b) => {
-  const lat = (v) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? 'N' : 'S'}`;
-  const lng = (v) => `${Math.abs(v).toFixed(2)}°${v >= 0 ? 'E' : 'W'}`;
-  return `${lat(b.south)}–${lat(b.north)}, ${lng(b.west)}–${lng(b.east)}`;
-};
-
-/** One small chip per kind of offline data an area holds. */
-function dataChips(r, source) {
-  const out = [];
-  const state = (st) => (st === 'completed' ? 'ok' : st === 'downloading' || st === 'building' || st === 'pending' ? 'busy' : st ? 'bad' : '');
-  out.push({ label: 'Map', cls: state(r.status) });
-  if (source?.kind === 'vector') out.push({ label: r.search?.status === 'completed' ? `Search · ${r.search.count.toLocaleString()}` : 'Search', cls: state(r.search?.status) });
-  out.push({ label: 'Road data', cls: state(r.routing?.status) });
-  for (const id of Object.keys(PACKS)) out.push({ label: PACKS[id].label.replace(' (elevation)', ''), cls: state(r.packs?.[id]?.status) });
-  return out;
+/** The three-dot menu of one map. */
+function RowMenu({ name, items }) {
+  const [open, setOpen] = useState(null); // { top, right } of the menu on screen, or null
+  const ref = useRef(null);
+  // the menu floats above the scrolling list (fixed position), opening upwards near the bottom
+  const toggle = (e) => {
+    if (open) return setOpen(null);
+    const b = e.currentTarget.getBoundingClientRect();
+    const below = window.innerHeight - b.bottom > 170;
+    return setOpen({ right: window.innerWidth - b.right, ...(below ? { top: b.bottom + 4 } : { bottom: window.innerHeight - b.top + 4 }) });
+  };
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => ref.current && !ref.current.contains(e.target) && setOpen(null);
+    const esc = (e) => e.key === 'Escape' && setOpen(null);
+    const gone = () => setOpen(null);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    window.addEventListener('scroll', gone, true);
+    window.addEventListener('resize', gone);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+      window.removeEventListener('scroll', gone, true);
+      window.removeEventListener('resize', gone);
+    };
+  }, [open]);
+  return (
+    <div className="om-menu" ref={ref}>
+      <button type="button" className="om-dots" onClick={toggle} aria-haspopup="menu" aria-expanded={Boolean(open)} aria-label={`More actions for ${name}`}>
+        <Icon name="dots" size={18} />
+      </button>
+      {open && (
+        <div className="om-pop" role="menu" style={open}>
+          {items.map((it) => (
+            <button
+              key={it.label}
+              type="button"
+              role="menuitem"
+              className={it.danger ? 'danger' : ''}
+              disabled={it.disabled}
+              onClick={() => {
+                setOpen(null);
+                it.onClick();
+              }}
+            >
+              <Icon name={it.icon} size={16} />
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const totalSize = (r) => (r.size || 0) + Object.values(r.packs || {}).reduce((n, p) => n + (p.size || 0), 0) + (r.routing?.bytes || 0);
@@ -53,21 +91,15 @@ export default function MyMapsPage() {
   const { user } = useAuth();
   const { status } = useConnectivity();
   const { regions } = useRegions(user.id);
-  const { provider: activeProvider, setProviderId } = useMapProvider();
   const [storage, setStorage] = useState(null);
-  const [persisted, setPersisted] = useState(false);
-  const [tileTotal, setTileTotal] = useState(0);
   const [serverMaps, setServerMaps] = useState(null);
   const [fitTo, setFitTo] = useState(null);
   useInitialFit(unionBounds(regions.map((r) => r.bounds)), setFitTo);
   const [message, setMessage] = useState(null);
   const [busyId, setBusyId] = useState(null);
-  const [selected, setSelected] = useState(() => new Set());
 
   const refreshStorage = useCallback(async () => {
     setStorage(await getStorageEstimate());
-    setPersisted(await isPersisted());
-    setTileTotal(await countStoredTiles());
   }, []);
 
   const refreshServer = useCallback(async () => {
@@ -102,75 +134,6 @@ export default function MyMapsPage() {
     }
   };
 
-  const toggleSelected = (id) =>
-    setSelected((cur) => {
-      const next = new Set(cur);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const onDeleteSelected = async () => {
-    const list = regions.filter((r) => selected.has(r.id));
-    if (!list.length) return;
-    const ok = await confirmDialog({
-      title: `Delete ${list.length} offline map${list.length > 1 ? 's' : ''}?`,
-      message: `${list.map((r) => `“${r.name}”`).join(', ')} will be removed from this device, with their satellite, terrain, road and search data. Data shared with other downloaded areas is kept. You will need internet to download them again.`,
-      confirmLabel: 'Delete selected',
-      danger: true,
-    });
-    if (!ok) return;
-    let freed = 0;
-    for (const r of list) {
-      setBusyId(r.id);
-      try {
-        freed += await deleteRegion(r.id);
-      } catch (err) {
-        setMessage({ tone: 'error', text: `${r.name}: ${err.message}` });
-      }
-    }
-    setBusyId(null);
-    setSelected(new Set());
-    setMessage({ tone: 'success', text: `Deleted ${list.length} area(s). Freed ${formatBytes(freed)}.` });
-    refreshStorage();
-  };
-
-  const onAddPack = async (r, packId) => {
-    setMessage(null);
-    try {
-      await addPacks(r.id, [packId]);
-    } catch (err) {
-      setMessage({ tone: 'error', text: err.message });
-    }
-  };
-
-  const onRemovePack = async (r, packId) => {
-    const ok = await confirmDialog({
-      title: `Remove ${PACKS[packId].label.toLowerCase()}?`,
-      message: `The ${PACKS[packId].label.toLowerCase()} of “${r.name}” will be deleted from this device. The map itself stays.`,
-      confirmLabel: 'Remove',
-      danger: true,
-    });
-    if (!ok) return;
-    try {
-      const freed = await removePack(r.id, packId);
-      setMessage({ tone: 'success', text: `Removed. Freed ${formatBytes(freed)}.` });
-      refreshStorage();
-    } catch (err) {
-      setMessage({ tone: 'error', text: err.message });
-    }
-  };
-
-  const onAddRouting = async (r) => {
-    setMessage(null);
-    try {
-      await downloadRoutingData(r.id);
-      setMessage({ tone: 'success', text: `Road data for “${r.name}” is ready for offline directions.` });
-    } catch (err) {
-      setMessage({ tone: 'error', text: err.message });
-    }
-  };
-
   const onResume = async (r) => {
     setMessage(null);
     try {
@@ -188,17 +151,6 @@ export default function MyMapsPage() {
       text: removed ? `Removed ${removed} unused tile(s), freed ${formatBytes(freed)}.` : 'Storage is already clean.',
     });
     refreshStorage();
-  };
-
-  const onPersist = async () => {
-    const ok = await requestPersistentStorage();
-    setPersisted(ok);
-    setMessage({
-      tone: ok ? 'success' : 'warning',
-      text: ok
-        ? 'The browser will keep your offline maps even when storage runs low.'
-        : 'The browser declined persistent storage. Installing Inner Map as an app usually allows it.',
-    });
   };
 
   const onForgetServer = async (m) => {
@@ -241,204 +193,51 @@ export default function MyMapsPage() {
         )}
 
         <section className="panel-section">
-          <div className="row between list-head">
-            <span className="section-label">On this device ({regions.length})</span>
-            {regions.length > 1 && (
-              <label className="check small">
-                <input
-                  type="checkbox"
-                  checked={selected.size === regions.length}
-                  onChange={(e) => setSelected(e.target.checked ? new Set(regions.map((r) => r.id)) : new Set())}
-                />
-                Select all
-              </label>
-            )}
-          </div>
-          {selected.size > 0 && (
-            <div className="bulk-bar" role="region" aria-label="Selected maps">
-              <span>{selected.size} selected</span>
-              <button type="button" className="btn btn-sm btn-danger-soft" onClick={onDeleteSelected} disabled={Boolean(busyId)}>
-                Delete selected
-              </button>
-              <button type="button" className="btn btn-sm" onClick={() => setSelected(new Set())}>
-                Clear
-              </button>
-            </div>
-          )}
+          <span className="section-label">On this device ({regions.length})</span>
           {regions.length === 0 ? (
             <div className="empty">
               <p>No offline maps yet.</p>
               <p className="small">Download an area while you are online to use it without internet.</p>
-              <Link to="/download" className="btn btn-primary btn-sm">
-                Download an area
-              </Link>
+              {status !== 'offline' && (
+                <Link to="/download" className="btn btn-primary btn-sm">
+                  Download an area
+                </Link>
+              )}
             </div>
           ) : (
-            <ul className="item-list">
+            <ul className="om-list">
               {regions.map((r) => {
                 const source = providerForRegion(r);
                 const running = isDownloading(r.id);
-                const packEntries = Object.entries(r.packs || {});
-                const packsUnfinished = packEntries.some(([, p]) => p.status !== 'completed');
+                const packsUnfinished = Object.values(r.packs || {}).some((p) => p.status !== 'completed');
                 const canResume =
                   !running &&
                   Boolean(source?.offlineAllowed) &&
                   (['interrupted', 'cancelled', 'partial', 'failed', 'paused'].includes(r.status) || (r.status === 'completed' && packsUnfinished));
-                const retry = r.status === 'failed' || r.status === 'partial' || packEntries.some(([, p]) => ['failed', 'partial'].includes(p.status));
+                const pct = r.tileCount ? Math.round((r.doneCount / r.tileCount) * 100) : 0;
+                const side = r.status === 'completed' ? formatBytes(totalSize(r)) : r.status === 'downloading' ? `${pct}%` : STATUS_LABEL[r.status] || r.status;
+                const items = [
+                  { label: 'Show on map', icon: 'map', onClick: () => setFitTo({ ...r.bounds }) },
+                  ...(running
+                    ? [
+                        { label: 'Pause', icon: 'stop', onClick: () => pauseDownload(r.id) },
+                        { label: 'Cancel download', icon: 'close', onClick: () => cancelDownload(r.id) },
+                      ]
+                    : []),
+                  ...(canResume ? [{ label: 'Resume download', icon: 'refresh', onClick: () => onResume(r), disabled: status === 'offline' }] : []),
+                  { label: 'Delete', icon: 'trash', danger: true, onClick: () => onDelete(r), disabled: busyId === r.id },
+                ];
                 return (
-                  <li key={r.id}>
-                    <div className="region-card-head">
-                      {regions.length > 1 && (
-                        <input
-                          type="checkbox"
-                          className="item-check"
-                          checked={selected.has(r.id)}
-                          onChange={() => toggleSelected(r.id)}
-                          aria-label={`Select ${r.name}`}
-                        />
-                      )}
-                      <button className="item-main" onClick={() => setFitTo({ ...r.bounds })} title="Show this area on the map">
-                        <span className="item-title">{r.name}</span>
-                        <span className="region-card-meta">
-                          <span>{coverageText(r.bounds)}</span>
-                          <span>{Math.round(boundsAreaKm2(r.bounds)).toLocaleString()} km²</span>
-                          <span>{formatBytes(totalSize(r))}</span>
-                          <span>Downloaded {new Date(r.createdAt).toLocaleDateString()}</span>
-                          <span>
-                            zoom {r.zoomMin}–{r.zoomMax}
-                          </span>
-                          {!r.serverId && <span>not synced</span>}
-                        </span>
-                      </button>
-                      <span className={`chip chip-${r.status} status-chip`}>{STATUS_LABEL[r.status] || r.status}</span>
-                    </div>
-                    <div className="region-chips" aria-label="Offline data in this area">
-                      {dataChips(r, source).map((c) => (
-                        <span key={c.label} className={`region-chip ${c.cls}`}>
-                          {c.cls === 'ok' ? '✓ ' : ''}
-                          {c.label}
-                        </span>
-                      ))}
-                    </div>
-                    {r.status !== 'completed' && (
-                      <ProgressBar
-                        value={r.doneCount}
-                        max={r.tileCount}
-                        tone={r.status === 'downloading' ? 'primary' : 'warn'}
-                        label={`${r.name} progress`}
-                      />
-                    )}
-                    {r.status !== 'completed' && (
-                      <p className="item-meta">
-                        {r.doneCount.toLocaleString()} of {r.tileCount.toLocaleString()} tiles
-                        {r.error ? ` · ${r.error}` : ''}
-                      </p>
-                    )}
-                    {r.missingCount > 0 && (
-                      <p className="item-meta">{r.missingCount} tiles have no data on the server (e.g. open sea).</p>
-                    )}
-                    {source && r.layerId !== activeProvider.layerId && (
-                      <p className="warn-text small">
-                        Shown when “{source.label}” is the base map.{' '}
-                        <button className="link-btn" onClick={() => setProviderId(source.id)}>
-                          Switch
-                        </button>
-                      </p>
-                    )}
-                    {!source && <p className="warn-text small">Its map source is no longer configured.</p>}
-                    <p className="item-meta">
-                      Road data for offline directions:{' '}
-                      {r.routing?.status === 'completed'
-                        ? `ready (${formatBytes(r.routing.bytes)}, ${r.routing.edges.toLocaleString()} road segments${(r.routing.profiles || []).includes('motorcycle') ? '' : '; no motorcycle routing - update it'})`
-                        : r.routing?.status === 'downloading' || r.routing?.status === 'pending'
-                          ? 'downloading...'
-                          : r.routing?.status === 'failed'
-                            ? `failed - ${r.routing.error}`
-                            : 'not downloaded'}{' '}
-                      {r.routing?.status === 'completed' && !(r.routing.profiles || []).includes('motorcycle') && status === 'online' && (
-                        <button className="link-btn" onClick={() => onAddRouting(r)}>
-                          Update
-                        </button>
-                      )}
-                      {r.status !== 'downloading' &&
-                        !['completed', 'downloading', 'pending'].includes(r.routing?.status) &&
-                        status === 'online' && (
-                          <button className="link-btn" onClick={() => onAddRouting(r)}>
-                            {r.routing?.status === 'failed' ? 'Retry' : 'Add'}
-                          </button>
-                        )}
-                    </p>
-                    {source?.kind === 'vector' && (
-                      <p className="item-meta">
-                        Offline search:{' '}
-                        {r.search?.status === 'completed'
-                          ? `${r.search.count.toLocaleString()} places, streets and businesses`
-                          : r.search?.status === 'building'
-                            ? 'preparing…'
-                            : r.search?.status === 'failed'
-                              ? `failed - ${r.search.error}`
-                              : r.status === 'completed' || r.status === 'partial'
-                                ? 'waiting'
-                                : 'after the map is downloaded'}
-                      </p>
-                    )}
-                    {Object.keys(PACKS).map((packId) => {
-                      const p = r.packs?.[packId];
-                      const def = PACKS[packId];
-                      return (
-                        <div key={packId} className="pack-line">
-                          <span className="item-meta">
-                            {def.label}:{' '}
-                            {!p
-                              ? 'not downloaded'
-                              : p.status === 'completed'
-                                ? `ready (${formatBytes(p.size)}, zoom ${p.zoomMin}–${p.zoomMax}${p.missingCount ? `, ${p.missingCount} tiles without data` : ''})`
-                                : p.status === 'downloading'
-                                  ? `downloading ${p.doneCount.toLocaleString()} / ${p.tileCount.toLocaleString()}`
-                                  : `${STATUS_LABEL[p.status] || p.status} (${p.doneCount.toLocaleString()} / ${p.tileCount.toLocaleString()})${p.error ? ` - ${p.error}` : ''}`}
-                          </span>
-                          {!running && !p && r.status === 'completed' && status === 'online' && def.source.offlineAllowed && (
-                            <button className="link-btn" onClick={() => onAddPack(r, packId)}>
-                              Add
-                            </button>
-                          )}
-                          {!running && p && (
-                            <button className="link-btn danger-text" onClick={() => onRemovePack(r, packId)}>
-                              Remove
-                            </button>
-                          )}
-                          {p?.status === 'downloading' && <ProgressBar value={p.doneCount} max={p.tileCount} label={`${r.name} ${def.label}`} />}
-                        </div>
-                      );
-                    })}
-                    <div className="item-actions">
-                      <button className="link-btn" onClick={() => setFitTo({ ...r.bounds })}>
-                        Show
-                      </button>
-                      {running && (
-                        <>
-                          <button className="link-btn" onClick={() => pauseDownload(r.id)}>
-                            Pause
-                          </button>
-                          <button className="link-btn" onClick={() => cancelDownload(r.id)}>
-                            Cancel
-                          </button>
-                        </>
-                      )}
-                      {canResume && (
-                        <button className="link-btn" onClick={() => onResume(r)} disabled={status === 'offline'}>
-                          {retry ? 'Retry' : 'Resume'}
-                        </button>
-                      )}
-                      <button
-                        className="link-btn danger-text"
-                        onClick={() => onDelete(r)}
-                        disabled={busyId === r.id}
-                        aria-label={`Delete ${r.name}`}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                  <li key={r.id} className={`om-row st-${r.status}`}>
+                    <button type="button" className="om-main" onClick={() => setFitTo({ ...r.bounds })} title={`Show ${r.name} on the map`}>
+                      <span className="om-icon" aria-hidden="true">
+                        <Icon name="map" size={16} />
+                      </span>
+                      <span className="om-name">{r.name}</span>
+                      <span className="om-size">{side}</span>
+                    </button>
+                    <RowMenu name={r.name} items={items} />
+                    {r.status === 'downloading' && <span className="om-progress" style={{ width: `${pct}%` }} aria-hidden="true" />}
                   </li>
                 );
               })}
@@ -446,43 +245,23 @@ export default function MyMapsPage() {
           )}
         </section>
 
-        <section className="panel-section">
-          <span className="section-label">Storage</span>
+        <section className="panel-section om-storage">
+          <div className="row between">
+            <span className="section-label">Storage</span>
+            {storage?.quota ? (
+              <span className="small muted">
+                {formatBytes(storage.usage)} of {formatBytes(storage.quota)}
+              </span>
+            ) : null}
+          </div>
           {storage?.quota ? (
-            <>
-              <ProgressBar
-                value={storage.usage}
-                max={storage.quota}
-                tone={usedPct > 85 ? 'danger' : 'primary'}
-                label="Storage used"
-              />
-              <p className="small">
-                {formatBytes(storage.usage)} used of {formatBytes(storage.quota)} available to Inner Map
-              </p>
-            </>
+            <ProgressBar value={storage.usage} max={storage.quota} tone={usedPct > 85 ? 'danger' : 'primary'} label="Storage used" />
           ) : (
             <p className="muted small">This browser does not report storage usage.</p>
           )}
-          <dl className="kv small">
-            <div>
-              <dt>Map tiles</dt>
-              <dd>{tileTotal.toLocaleString()} (shared tiles stored once)</dd>
-            </div>
-            <div>
-              <dt>Protected storage</dt>
-              <dd>{persisted ? 'On - the browser keeps these maps' : 'Off - the browser may clear them when space is low'}</dd>
-            </div>
-          </dl>
-          <div className="row wrap">
-            {!persisted && (
-              <button className="btn btn-sm" onClick={onPersist}>
-                Protect offline maps
-              </button>
-            )}
-            <button className="btn btn-sm" onClick={onCleanup}>
-              Clean up storage
-            </button>
-          </div>
+          <button className="btn btn-sm om-clean" onClick={onCleanup}>
+            <Icon name="trash" size={14} /> Clean up storage
+          </button>
         </section>
 
         {elsewhere.length > 0 && (

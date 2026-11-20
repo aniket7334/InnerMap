@@ -31,6 +31,26 @@ export function OrbitLiteScene({ hidden = false }) {
   const front = `M ${x0},${y0} A ${rx} ${ry} ${tilt} 0 0 ${x1},${y1}`;
   const back = `M ${x1},${y1} A ${rx} ${ry} ${tilt} 0 0 ${x0},${y0}`;
   const box = Math.ceil(rx + 12);
+  // satellite: transform keyframes around the tilted ellipse (animated on the compositor, so it
+  // keeps moving while the page is busy); in front of the Earth on the lower half, behind it above
+  const satRef = useRef(null);
+  useEffect(() => {
+    const el = satRef.current;
+    if (!el?.animate) return undefined;
+    const frames = [];
+    const N = 48;
+    for (let i = 0; i <= N; i++) {
+      const a = Math.PI + (i / N) * Math.PI * 2; // start at the left end, go down (front) first
+      const ex = rx * Math.cos(a);
+      const ey = -ry * Math.sin(a);
+      const x = ex * Math.cos(t) - ey * Math.sin(t);
+      const y = ex * Math.sin(t) + ey * Math.cos(t);
+      frames.push({ transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`, zIndex: i <= N / 2 ? 3 : 1, offset: i / N });
+    }
+    const slow = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    const anim = el.animate(frames, { duration: slow ? 40000 : 11000, iterations: Infinity });
+    return () => anim.cancel();
+  }, [rx, ry, t]);
   const svg = (pathD, cls) => (
     <svg className={cls} width={box * 2} height={box * 2} viewBox={`${-box} ${-box} ${box * 2} ${box * 2}`} style={{ left: -box, top: -box }}>
       <path d={pathD} />
@@ -41,9 +61,11 @@ export function OrbitLiteScene({ hidden = false }) {
       <div className="orbit-lite-stars" />
       <div className="orbit-lite-system">
         {svg(back, 'orbit-lite-ring back')}
-        <div className="orbit-lite-globe" />
+        <div className="orbit-lite-globe">
+          <div className="orbit-lite-map" />
+        </div>
         {svg(front, 'orbit-lite-ring front')}
-        <span className="orbit-lite-sat" style={{ offsetPath: `path("${front} A ${rx} ${ry} ${tilt} 0 0 ${x0},${y0}")` }} />
+        <span className="orbit-lite-sat" ref={satRef} />
       </div>
     </div>
   );
@@ -77,7 +99,7 @@ export default function OrbitSplashLite() {
           <h1>InnerMap Earth</h1>
         </div>
         <div className="orbit-splash-bar">
-          <span style={{ width: `${pct}%` }} />
+          <span style={{ transform: `scaleX(${pct / 100})` }} />
         </div>
         <div className="orbit-splash-status">
           <span>{s.phase === 'loading' ? stepFor(Math.min(shown, 0.99)) : 'Ready'}</span>

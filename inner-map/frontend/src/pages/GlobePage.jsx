@@ -441,6 +441,9 @@ export default function GlobePage() {
     // With the 3D loading screen the globe starts at its final view (the loading screen flies
     // there itself and hands over); with the light one it starts far out and flies in.
     const height = splashState.get().mode === '3d' ? wholeEarthHeight(viewer) : Math.max(36000000, wholeEarthHeight(viewer) * 2);
+    // hidden behind the loading screen: draw at half resolution (cheaper, so the loading
+    // animation stays smooth); full sharpness again for the hand-over
+    viewer.resolutionScale = 0.5;
     viewer.camera.setView({ destination: Cartesian3.fromDegrees(target.lng, target.lat, height) });
     splashState.set({ progress: 0.35, step: 'Loading satellite imagery' });
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -500,6 +503,8 @@ export default function GlobePage() {
     if (splash !== 'leaving') return undefined;
     const viewer = viewerRef.current;
     if (viewer && !viewer.isDestroyed()) {
+      viewer.resolutionScale = 1;
+      viewer.scene.requestRender();
       if (splashState.get().mode === '3d') {
         const c = viewer.camera.positionCartographic;
         const r = viewer.scene.canvas.getBoundingClientRect();
@@ -1050,10 +1055,11 @@ export default function GlobePage() {
   // The Earth is the start screen: keep its program files on the device so it opens offline.
   const autoCached = useRef(false);
   useEffect(() => {
-    if (autoCached.current || !online || !offline.supported || offline.ready || caching) return;
+    // (after the loading screen: saving the Earth files is heavy and would make it stutter)
+    if (autoCached.current || !online || !offline.supported || offline.ready || caching || splash === 'show') return;
     autoCached.current = true;
     cacheGlobe(true);
-  }, [online, offline, caching, cacheGlobe]);
+  }, [online, offline, caching, cacheGlobe, splash]);
 
   const uncacheGlobe = async () => {
     if (!(await confirmDialog({ title: 'Remove offline Earth files?', message: 'The Earth view will then need a connection to open.', confirmLabel: 'Remove', danger: true }))) return;

@@ -30,7 +30,8 @@ function canShow3d() {
 function LoadingScreen() {
   const s = useSplashState();
   const [hidden, setHidden] = useState(false);
-  const fallback = useCallback(() => splashState.set({ mode: '2d' }), []);
+  // 3D not possible or too slow on this device: the light version of the same design
+  const fallback = useCallback(() => splashState.set({ mode: '2d', fellBack: true }), []);
   const done = useCallback(() => setHidden(true), []);
   // the light loading screen fades with CSS, then goes
   useEffect(() => {
@@ -94,7 +95,8 @@ export default function GlobeLoader() {
     splashState.reset(canShow3d() ? '3d' : '2d');
     return true;
   });
-  useEffect(() => () => splashState.reset(), []);
+  // (no reset on unmount: React's development StrictMode unmounts and remounts once, and a reset
+  // there would swap the 3D loading screen for the light one; the next visit resets anyway)
   return (
     <GlobeErrorBoundary>
       {ready && <LoadingScreen />}

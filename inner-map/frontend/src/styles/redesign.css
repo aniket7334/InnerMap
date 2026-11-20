@@ -1240,10 +1240,27 @@ a {
 .orbit-splash-bar span {
   display: block;
   height: 100%;
-  width: 0;
+  width: 100%;
   border-radius: 2px;
   background: linear-gradient(90deg, #4ea1ff, #2dd4bf);
-  transition: width 0.35s ease;
+  /* scaled, not resized: animated on the compositor, smooth while the page is busy */
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.35s linear;
+}
+.orbit-splash-holder {
+  position: absolute;
+  inset: 0;
+}
+.orbit-splash-overlay {
+  transition: opacity 1.4s ease;
+}
+.orbit-splash-overlay.out {
+  opacity: 0;
+}
+.orbit-splash.fading {
+  opacity: 0;
+  transition: opacity 0.7s ease;
 }
 .orbit-splash-status {
   min-height: 18px;
@@ -1305,21 +1322,41 @@ a {
   width: var(--d);
   height: var(--d);
   border-radius: 50%;
-  background: #0b2a4a url('/textures/earth-day.v1.jpg') repeat-x;
-  background-size: calc(var(--d) * 2) var(--d);
-  animation: orbit-lite-turn 70s linear infinite;
+  overflow: hidden;
+  background: #0b2a4a;
   box-shadow:
-    inset calc(var(--d) * -0.2) calc(var(--d) * -0.05) calc(var(--d) * 0.28) rgba(0, 0, 0, 0.88),
-    inset calc(var(--d) * 0.02) calc(var(--d) * 0.02) calc(var(--d) * 0.06) rgba(160, 200, 255, 0.25),
     0 0 calc(var(--d) * 0.05) rgba(79, 160, 255, 0.6),
     0 0 calc(var(--d) * 0.2) rgba(40, 110, 255, 0.28);
+  transform: translateZ(0);
+}
+/* the map strip slides (transform: animated on the compositor) */
+.orbit-lite-map {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--d) * 4);
+  height: var(--d);
+  background: url('/textures/earth-day.v1.jpg') repeat-x;
+  background-size: calc(var(--d) * 2) var(--d);
+  animation: orbit-lite-turn 70s linear infinite;
+  will-change: transform;
+}
+/* night side and rim light on top */
+.orbit-lite-globe::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow:
+    inset calc(var(--d) * -0.2) calc(var(--d) * -0.05) calc(var(--d) * 0.28) rgba(0, 0, 0, 0.88),
+    inset calc(var(--d) * 0.02) calc(var(--d) * 0.02) calc(var(--d) * 0.06) rgba(160, 200, 255, 0.25);
 }
 @keyframes orbit-lite-turn {
   from {
-    background-position-x: 0;
+    transform: translateX(0);
   }
   to {
-    background-position-x: calc(var(--d) * -2);
+    transform: translateX(calc(var(--d) * -2));
   }
 }
 .orbit-lite-ring {
@@ -1348,31 +1385,10 @@ a {
   border-radius: 50%;
   background: #fbbc04;
   box-shadow: 0 0 6px 2px rgba(251, 188, 4, 0.55);
-  offset-rotate: 0deg;
-  animation: orbit-lite-fly 11s linear infinite;
-}
-/* front half of the orbit passes in front of the Earth, the back half behind it */
-@keyframes orbit-lite-fly {
-  0% {
-    offset-distance: 0%;
-    z-index: 3;
-  }
-  50% {
-    z-index: 3;
-  }
-  50.01% {
-    z-index: 1;
-  }
-  100% {
-    offset-distance: 100%;
-    z-index: 1;
-  }
+  will-change: transform;
 }
 @media (prefers-reduced-motion: reduce) {
-  .orbit-lite-globe {
+  .orbit-lite-map {
     animation-duration: 240s;
-  }
-  .orbit-lite-sat {
-    animation-duration: 40s;
   }
 }

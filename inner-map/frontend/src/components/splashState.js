@@ -40,6 +40,8 @@ export const splashState = {
   },
 };
 
+if (typeof window !== 'undefined') window.__innerMapSplash = splashState; // diagnostics in the browser console
+
 export function useSplashState() {
   return useSyncExternalStore(splashState.subscribe, splashState.get);
 }

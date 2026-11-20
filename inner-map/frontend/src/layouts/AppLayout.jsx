@@ -50,9 +50,12 @@ import { formatBytes, getStorageEstimate } from '../offline/storage';
 
 // Sidebar groups. "Route planner" opens the Directions panel on the map.
 const WORKSPACE = [
-  { to: '/map', label: 'Map explorer', icon: 'map', end: true },
-  { to: '/map', label: 'Route planner', icon: 'route2', state: { openDirections: true }, route: true },
-  { to: '/download', label: 'Download area', icon: 'download' },
+  // offline: Map explorer and Route planner are hidden (offline maps open from Offline maps);
+  // Download area is not listed - it opens from the Earth's "Download map" button and shows here
+  // only while it is open
+  { to: '/map', label: 'Map explorer', icon: 'map', end: true, online: true },
+  { to: '/map', label: 'Route planner', icon: 'route2', state: { openDirections: true }, route: true, online: true },
+  { to: '/download', label: 'Download area', icon: 'download', onlyWhenOpen: true },
   { to: '/', label: 'Earth', icon: 'globe', end: true },
 ];
 const LIBRARY = [
@@ -76,8 +79,8 @@ const PAGE_TITLE = {
 // Bottom navigation on phones: the four most used places plus "More".
 // (The Layers & KML page is no longer in the navigation; its data and the /layers address remain.)
 const MOBILE = [
-  { to: '/map', label: 'Map', icon: 'map' },
-  { to: '/download', label: 'Download', icon: 'download' },
+  { to: '/map', label: 'Map', icon: 'map', online: true },
+  { to: '/', label: 'Earth', icon: 'globe', end: true },
   { to: '/saved', label: 'Places', icon: 'pin' },
   { to: '/my-maps', label: 'Offline', icon: 'layers' },
 ];
@@ -168,6 +171,10 @@ export default function AppLayout() {
     .slice(0, 2)
     .toUpperCase();
 
+  // which tabs to list right now
+  const offline = status === 'offline';
+  const visible = (item) => !(item.online && offline) && !(item.onlyWhenOpen && routerLocation.pathname !== item.to);
+
   const navLink = (item) => (
     <NavLink
       key={item.label}
@@ -198,7 +205,7 @@ export default function AppLayout() {
 
         <nav className="nav" aria-label="Workspace">
           <span className="nav-group-label">Workspace</span>
-          {WORKSPACE.map(navLink)}
+          {WORKSPACE.filter(visible).map(navLink)}
           <span className="nav-group-label">Your library</span>
           {LIBRARY.map(navLink)}
         </nav>
@@ -226,8 +233,8 @@ export default function AppLayout() {
               </span>
             </button>
           ))}
-          <NavLink to={regions.length > 3 ? '/my-maps' : '/download'} className="sidebar-offline-link">
-            {regions.length > 3 ? 'All offline maps' : 'Download a map'} <Icon name="external" size={13} />
+          <NavLink to={regions.length > 3 || offline ? '/my-maps' : '/download'} className="sidebar-offline-link">
+            {regions.length > 3 || offline ? 'All offline maps' : 'Download a map'} <Icon name="external" size={13} />
           </NavLink>
         </section>
 
@@ -303,8 +310,8 @@ export default function AppLayout() {
       </main>
 
       <nav className="bottom-nav" aria-label="Main">
-        {MOBILE.map((item) => (
-          <NavLink key={item.to} to={item.to} className={({ isActive }) => `bottom-item ${isActive ? 'active' : ''}`}>
+        {MOBILE.filter(visible).map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => `bottom-item ${isActive ? 'active' : ''}`}>
             <Icon name={item.icon} size={20} />
             <span>{item.label}</span>
           </NavLink>
@@ -325,7 +332,7 @@ export default function AppLayout() {
           <div className="sheet-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
           <div className="more-sheet" role="dialog" aria-label="More">
             <span className="sheet-handle" aria-hidden="true" />
-            {[WORKSPACE[1], ...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].map((item) => (
+            {[WORKSPACE[1], ...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].filter(visible).map((item) => (
               <NavLink key={item.label} to={item.to} state={item.state} className="nav-item">
                 <Icon name={item.icon} size={18} />
                 <span>{item.label}</span>

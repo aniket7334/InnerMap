@@ -667,7 +667,9 @@ export default function DownloadPage() {
               {job.status === 'completed'
                 ? `“${job.name}” map is ready offline (${formatBytes(job.size)}).${Object.keys(job.packs || {}).length ? ' Data packs continue downloading - see Offline maps.' : ''}`
                 : job.error || `Download ${job.status}.`}{' '}
-              <Link to="/my-maps">Open offline maps</Link>
+              <Link to="/my-maps" className="btn btn-primary btn-sm dl-done-link">
+                <Icon name="layers" size={14} /> View in Offline maps
+              </Link>
             </Alert>
           )}
         </section>

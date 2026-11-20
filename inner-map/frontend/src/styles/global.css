@@ -3888,3 +3888,12 @@ html.no-scroll body {
   padding-left: 6px;
   padding-right: 6px;
 }
+
+/* Download page: "View in Offline maps" after a finished download */
+.dl-done-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  text-decoration: none;
+}

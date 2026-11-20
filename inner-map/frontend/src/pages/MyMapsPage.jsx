@@ -226,9 +226,12 @@ export default function MyMapsPage() {
             <h1>Offline maps</h1>
             <p>Areas stored on this device and usable without internet.</p>
           </div>
-          <Link to="/download" className="btn btn-primary btn-sm">
-            Download area
-          </Link>
+          {/* downloading needs internet: the button is shown online only */}
+          {status !== 'offline' && (
+            <Link to="/download" className="btn btn-primary btn-sm">
+              Download area
+            </Link>
+          )}
         </header>
 
         {message && (

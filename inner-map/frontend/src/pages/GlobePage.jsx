@@ -56,6 +56,7 @@ import { terrariumTerrain } from '../globe/TerrariumTerrainProvider';
 import { TransitImageryProvider } from '../globe/TransitImageryProvider';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
 import { createLocalLabels } from '../globe/localLabels';
+import { nearestCity } from '../globe/exploreSearch';
 import { createPhotoMarkers, fetchPlacePhotos, loadWorldPhotos, mergePhotos, searchKey, viewRadiusKm, worldPhotosInView, PHOTOS_MAX_HEIGHT } from '../globe/placePhotos';
 import PhotoGallery, { PhotoStrip } from '../components/EarthPhotos';
 import EarthSettings, { detailPreset } from '../components/EarthSettings';
@@ -1231,6 +1232,21 @@ export default function GlobePage() {
       directionsTo: end?.lat != null ? { label: end.label, lat: end.lat, lng: end.lng } : null,
       focus: end?.lat != null ? { type: 'point', lat: end.lat, lng: end.lng, zoom: 15, label: end.label, at: Date.now() } : undefined,
     });
+  /** Download area page for the place in view (the view's box and the nearest city's name). */
+  const openDownload = () => {
+    const box = camera.height < 150000 ? getViewBox() : null;
+    if (!box) return navigate('/download');
+    const near = nearestCity(worldNames, camera.lat, camera.lng, 40);
+    const p = new URLSearchParams({
+      south: box.rect.south.toFixed(5),
+      west: box.rect.west.toFixed(5),
+      north: box.rect.north.toFixed(5),
+      east: box.rect.east.toFixed(5),
+      ...(near ? { name: near.name } : {}),
+    });
+    return navigate(`/download?${p}`);
+  };
+
   const openMapHere = () => {
     if (camera.lat == null) return openMap();
     const z = Math.max(3, Math.min(18, Math.round(Math.log2(40000000 / Math.max(camera.height, 1)))));
@@ -1621,6 +1637,19 @@ export default function GlobePage() {
           online={online}
           hint={!detailBounds && mapStyle !== 'clean' && mapStyle !== 'map' ? 'Street names appear where map data is available (server area or your downloads).' : null}
         />
+      )}
+
+      {/* right side: download the place in view for offline use (needs internet) */}
+      {online && (
+        <button type="button" className="earth-download" onClick={openDownload} title="Download this area to use it without internet">
+          <span className="earth-download-icon">
+            <Icon name="cloudDown" size={18} />
+          </span>
+          <span className="earth-download-text">
+            <strong>Download map</strong>
+            <small>{camera.height < 150000 ? 'This area, for offline use' : 'Choose an area for offline use'}</small>
+          </span>
+        </button>
       )}
 
       {/* bottom-right: camera controls */}

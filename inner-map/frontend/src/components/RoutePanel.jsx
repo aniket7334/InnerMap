@@ -53,8 +53,8 @@ export function formatDuration(s) {
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-/** One location field: free text with a suggestion list. */
-function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus, marker }) {
+/** One location field: free text with a suggestion list (also used by the Earth page). */
+export function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus, marker }) {
   const [text, setText] = useState(value?.label || '');
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState({ q: '', items: [], loading: false, error: null });
@@ -112,16 +112,18 @@ function PlaceField({ label, value, onChange, onPick, picking, places, position,
             } else if (e.key === 'Escape') setOpen(false);
           }}
         />
-        <button
-          type="button"
-          className={`icon-btn rp-pick ${picking ? 'active' : ''}`}
-          onClick={onPick}
-          title="Choose on the map"
-          aria-label={`Choose ${label.toLowerCase()} on the map`}
-          aria-pressed={picking}
-        >
-          <Icon name="pin" size={16} />
-        </button>
+        {onPick && (
+          <button
+            type="button"
+            className={`icon-btn rp-pick ${picking ? 'active' : ''}`}
+            onClick={onPick}
+            title="Choose on the map"
+            aria-label={`Choose ${label.toLowerCase()} on the map`}
+            aria-pressed={picking}
+          >
+            <Icon name="pin" size={16} />
+          </button>
+        )}
       </div>
       {open && (
         <div className="suggest" role="listbox">
@@ -181,13 +183,13 @@ function PlaceField({ label, value, onChange, onPick, picking, places, position,
   );
 }
 
-export default function RoutePanel({ userId, pick, setPick, picked, onResult, onFocusPoint, onClose, onStartNavigation }) {
+export default function RoutePanel({ userId, pick, setPick, picked, onResult, onFocusPoint, onClose, onStartNavigation, initialEnd = null }) {
   const { status } = useConnectivity();
   const { position, locateOnce } = useLocation();
   const { locations } = useSavedLocations(userId);
   const { regions } = useRegions(userId);
   const [start, setStart] = useState({ label: 'My location', kind: 'gps' });
-  const [end, setEnd] = useState(null);
+  const [end, setEnd] = useState(() => (initialEnd?.lat != null ? { ...initialEnd, kind: 'search' } : null));
   const [profile, setProfile] = useState('car');
   const [preference, setPreference] = useState('auto');
   const [route, setRoute] = useState(null);

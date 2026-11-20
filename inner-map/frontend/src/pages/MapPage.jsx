@@ -442,6 +442,7 @@ export default function MapPage() {
           )}
           {routeOpen && (
             <RoutePanel
+              initialEnd={routerLocation.state?.directionsTo || null}
               onStartNavigation={(n) => {
                 setNav(n);
                 setRouteView((v) => ({ ...v, route: n.route }));

@@ -1,0 +1,667 @@
+/* =====================================================================
+   Earth page Explore panel: search, recent, weather, search this area, directions.
+   Floating cards on the left (desktop); a bottom sheet opened with "Explore" (phones).
+   ===================================================================== */
+.earth-explore-wrap {
+  position: absolute;
+  top: 104px;
+  left: 12px;
+  bottom: 96px;
+  z-index: 16;
+  width: 384px;
+  max-width: calc(100% - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+  padding: 2px 6px 8px 2px;
+  margin: -2px -6px 0 -2px;
+  pointer-events: none; /* the gaps between cards stay clickable globe */
+}
+.earth-explore-wrap.covered {
+  display: none;
+}
+.earth-explore-close,
+.earth-explore-fab {
+  display: none;
+}
+.earth-explore {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ex-card {
+  pointer-events: auto;
+  background: var(--surface, #fff);
+  color: var(--text, #1a1d21);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12), 0 6px 20px rgba(15, 23, 42, 0.16);
+  overflow: hidden;
+}
+:root[data-theme='dark'] .ex-card {
+  background: #202124;
+  color: #e8eaed;
+}
+.ex-flip {
+  transform: rotate(180deg);
+}
+.ex-rot {
+  transform: rotate(90deg);
+}
+.ex-back {
+  transform: rotate(180deg);
+}
+.ex-muted {
+  color: var(--muted, #6b717b);
+  flex: none;
+}
+.ex-icon-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.ex-icon-btn:hover {
+  background: rgba(128, 128, 128, 0.14);
+}
+.ex-note {
+  margin: 0;
+  padding: 4px 16px 12px;
+  color: var(--muted, #6b717b);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+.ex-directions .ex-note,
+.ex-route .ex-note {
+  padding: 0;
+}
+.ex-error {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--danger-weak, #fbeceb);
+  color: var(--danger, #b42318);
+  font-size: var(--fs-sm);
+}
+.ex-credit {
+  margin: 0;
+  padding: 6px 16px 12px;
+  color: var(--muted, #6b717b);
+  font-size: 10px;
+}
+
+/* ---------- search card ---------- */
+.ex-search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 6px;
+}
+.ex-search-box {
+  flex: 1;
+  min-width: 0;
+}
+.earth .ex-search .search.search-earth input {
+  min-height: 44px;
+  background: transparent;
+  font-size: var(--fs-md);
+}
+.earth .ex-search .search.search-earth input:focus {
+  box-shadow: none;
+}
+.earth .ex-search .search-earth .search-panel {
+  min-width: 0;
+  left: -6px;
+  right: -56px;
+  width: auto;
+}
+.ex-dir-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: #1a73e8;
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.4);
+  transform: rotate(0deg);
+}
+.ex-dir-btn:hover {
+  background: #1765cc;
+}
+.ex-recent {
+  margin: 0;
+  padding: 2px 0 6px;
+  list-style: none;
+  border-top: 1px solid var(--border, #e0e3e7);
+}
+:root[data-theme='dark'] .ex-recent {
+  border-top-color: #3c4043;
+}
+.ex-recent button,
+.ex-results button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ex-recent button:hover,
+.ex-results button:hover,
+.ex-results button.on {
+  background: rgba(128, 128, 128, 0.09);
+}
+.ex-recent-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ex-recent-text strong {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium, 500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-recent-text small {
+  color: var(--muted, #6b717b);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:root[data-theme='dark'] .ex-recent-text small,
+:root[data-theme='dark'] .ex-note,
+:root[data-theme='dark'] .ex-credit {
+  color: #9aa0a6;
+}
+
+/* ---------- weather card: coloured by the real conditions ---------- */
+.ex-weather {
+  color: #fff;
+  background: linear-gradient(135deg, #3a7bd5 0%, #2b5f9e 100%);
+}
+.ex-weather.wx-sun.wx-day {
+  background: linear-gradient(135deg, #f7b733 0%, #fc8a45 45%, #4a90e2 100%);
+}
+.ex-weather.wx-cloudSun.wx-day {
+  background: linear-gradient(135deg, #7fb2e5 0%, #4a7fc1 100%);
+}
+.ex-weather.wx-cloud {
+  background: linear-gradient(135deg, #8a99ab 0%, #556577 100%);
+}
+.ex-weather.wx-fog {
+  background: linear-gradient(135deg, #a3adb8 0%, #6f7b88 100%);
+}
+.ex-weather.wx-rain {
+  background: linear-gradient(135deg, #4b6584 0%, #2d3e55 100%);
+}
+.ex-weather.wx-snow {
+  background: linear-gradient(135deg, #9fb7d0 0%, #6a86a6 100%);
+}
+.ex-weather.wx-storm {
+  background: linear-gradient(135deg, #3b3f5c 0%, #1f2133 100%);
+}
+.ex-weather.wx-night {
+  background: linear-gradient(135deg, #1e2a4a 0%, #0f1629 100%);
+}
+.ex-weather.wx-none {
+  background: linear-gradient(135deg, #3d4a5c 0%, #283240 100%);
+}
+:root[data-theme='dark'] .ex-weather {
+  color: #fff;
+}
+.ex-weather-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 10px 0 18px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium, 500);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.ex-weather-head button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.ex-weather-head button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.ex-weather-msg {
+  margin: 0;
+  padding: 10px 18px 6px;
+  font-size: var(--fs-sm);
+  opacity: 0.9;
+}
+.ex-weather-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 14px 8px 18px;
+}
+.ex-temp {
+  font-size: 52px;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -1px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+.ex-temp sup {
+  font-size: 22px;
+  vertical-align: 26px;
+  margin-left: 2px;
+}
+.ex-wx-icon {
+  flex: none;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+.ex-wx-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+}
+.ex-wx-text strong {
+  font-weight: var(--fw-medium, 500);
+}
+.ex-wx-text span {
+  opacity: 0.88;
+}
+.ex-wx-more {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.32);
+  color: #fff;
+  cursor: pointer;
+}
+.ex-wx-more:hover {
+  background: rgba(0, 0, 0, 0.45);
+}
+.ex-wx-more svg {
+  transition: transform 0.2s;
+}
+.ex-wx-detail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 2px 14px 8px;
+  padding: 10px 6px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+.ex-wx-detail dt {
+  font-size: 10px;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.ex-wx-detail dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium, 500);
+}
+.ex-credit-light {
+  margin: 0;
+  padding: 0 18px 10px;
+  font-size: 10px;
+}
+.ex-credit-light a {
+  color: rgba(255, 255, 255, 0.75);
+  text-decoration: none;
+}
+.ex-credit-light a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- search this area ---------- */
+.ex-area-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 10px 8px 16px;
+}
+.ex-area-head h3 {
+  flex: 1;
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium, 500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ex-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px 6px;
+  padding: 8px 12px 20px;
+}
+.ex-cat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2, #454b54);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+:root[data-theme='dark'] .ex-cat {
+  color: #bdc1c6;
+}
+.ex-cat:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.ex-cat-badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+.ex-cat-badge.small {
+  width: 30px;
+  height: 30px;
+}
+.ex-cat:not(:disabled):hover .ex-cat-badge,
+.ex-cat:focus-visible .ex-cat-badge {
+  transform: translateY(-2px);
+  background: color-mix(in srgb, var(--c) 20%, transparent);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--c) 30%, transparent);
+}
+.ex-results {
+  margin: 0;
+  padding: 0 0 4px;
+  list-style: none;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.ex-num {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--c);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.ex-dist {
+  flex: none;
+  color: var(--text-2, #454b54);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+:root[data-theme='dark'] .ex-dist {
+  color: #bdc1c6;
+}
+.ex-place {
+  margin: 0 12px 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(26, 115, 232, 0.07);
+  border: 1px solid rgba(26, 115, 232, 0.18);
+}
+.ex-place-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ex-place-head div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ex-place-head strong {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium, 500);
+}
+.ex-place-head small {
+  color: var(--muted, #6b717b);
+  font-size: var(--fs-xs);
+}
+.ex-place-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.ex-pill {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border, #dadce0);
+  border-radius: 19px;
+  background: var(--surface, #fff);
+  color: #1a73e8;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium, 500);
+  cursor: pointer;
+}
+:root[data-theme='dark'] .ex-pill {
+  background: #2a2b2e;
+  border-color: #3c4043;
+  color: #8ab4f8;
+}
+.ex-pill:hover {
+  background: rgba(26, 115, 232, 0.06);
+}
+.ex-pill.primary {
+  border-color: transparent;
+  background: #1a73e8;
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.35);
+}
+.ex-pill.primary:hover {
+  background: #1765cc;
+}
+
+/* ---------- directions ---------- */
+.ex-dir-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+.ex-signin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 20px 20px;
+  text-align: center;
+  color: var(--text-2, #454b54);
+  font-size: var(--fs-sm);
+}
+.ex-signin > svg {
+  color: #1a73e8;
+}
+.ex-signin p {
+  margin: 0;
+  line-height: 1.5;
+}
+.ex-signin .ex-pill {
+  flex: none;
+  min-width: 140px;
+}
+.ex-route {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+/* the place search lives in the panel on large screens: not twice in the header */
+@media (min-width: 821px) and (min-height: 501px) {
+  .earth-toolbar .earth-search {
+    display: none;
+  }
+  .earth-toolbar {
+    justify-self: start;
+    width: max-content;
+  }
+  .earth-toolbar .earth-tools {
+    padding-left: 2px;
+  }
+  /* the photo strip makes room for the panel */
+  .earth-photos {
+    left: 410px;
+    right: 70px;
+    width: auto;
+    transform: none;
+  }
+}
+
+/* ---------- phones: a bottom sheet opened with "Explore" ---------- */
+@media (max-width: 820px), (max-height: 500px) {
+  .earth-explore-wrap {
+    display: none;
+    position: fixed;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: auto;
+    max-width: none;
+    max-height: 80dvh;
+    margin: 0;
+    padding: 46px 10px calc(12px + env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+    background: var(--surface-2, #f3f4f6);
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.3);
+    z-index: 30;
+    pointer-events: auto;
+  }
+  :root[data-theme='dark'] .earth-explore-wrap {
+    background: #121314;
+  }
+  .earth-explore-wrap.open {
+    display: block;
+  }
+  .earth-explore-wrap.covered {
+    display: none;
+  }
+  .earth-explore-close {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(128, 128, 128, 0.16);
+    color: inherit;
+    cursor: pointer;
+  }
+  .earth-explore-wrap::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    width: 40px;
+    height: 4px;
+    margin-left: -20px;
+    border-radius: 2px;
+    background: rgba(128, 128, 128, 0.4);
+  }
+  /* the header already has the place search on phones */
+  .ex-search .ex-search-box {
+    display: none;
+  }
+  .ex-search-row::before {
+    content: 'Explore';
+    flex: 1;
+    padding-left: 10px;
+    font-weight: var(--fw-medium, 500);
+  }
+  .earth-explore-fab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    position: absolute;
+    top: calc(64px + env(safe-area-inset-top));
+    left: 10px;
+    z-index: 15;
+    height: 38px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 19px;
+    background: rgba(255, 255, 255, 0.96);
+    color: #1a73e8;
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: var(--fw-medium, 500);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+  }
+  .ex-grid {
+    gap: 14px 4px;
+  }
+  .ex-cat-badge {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+/* labels for screen readers only; full-size Find route button in the panel */
+.earth-explore .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ex-dir-body .rp-find {
+  flex: none;
+  min-height: 42px;
+}

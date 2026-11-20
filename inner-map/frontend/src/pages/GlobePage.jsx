@@ -28,6 +28,7 @@ import {
   Transforms,
   Math as CesiumMath,
   ArcType,
+  PolylineOutlineMaterialProperty,
   CallbackProperty,
   Ellipsoid,
   EllipsoidalOccluder,
@@ -35,6 +36,7 @@ import {
   LabelStyle,
   NearFarScalar,
   VerticalOrigin,
+  HeightReference,
   buildModuleUrl,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
@@ -61,6 +63,7 @@ import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
 import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
+import EarthExplore from '../components/EarthExplore';
 import { splashState, MIN_SHOW_MS } from '../components/splashState';
 import Icon from '../components/Icon';
 import { formatBytes } from '../offline/storage';
@@ -87,6 +90,19 @@ function readBasemap() {
     return {};
   }
 }
+/** Map pin with a number (search results) as an image for the globe. */
+const pinCache = new Map();
+function numberedPin(n, color, big) {
+  const key = `${n}|${color}|${big}`;
+  if (!pinCache.has(key)) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46"><path d="M18 45C18 45 34 28 34 17A16 16 0 0 0 2 17C2 28 18 45 18 45z" fill="${color}" stroke="#fff" stroke-width="2.5"/>${
+      n === '' ? '<circle cx="18" cy="17" r="6" fill="#fff"/>' : `<text x="18" y="22.5" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#fff" text-anchor="middle">${n}</text>`
+    }</svg>`;
+    pinCache.set(key, `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`);
+  }
+  return pinCache.get(key);
+}
+
 const PHOTOS_KEY = 'innermap.earth.photos';
 function readPhotosSetting() {
   try {
@@ -391,6 +407,8 @@ export default function GlobePage() {
       regions: new CustomDataSource('downloaded-areas'),
       layers: new CustomDataSource('layers'),
       places: new CustomDataSource('places'),
+      explore: new CustomDataSource('explore-results'),
+      exploreRoute: new CustomDataSource('explore-route'),
       user: new CustomDataSource('my-location'),
     };
     Object.values(sources).forEach((ds) => viewer.dataSources.add(ds));
@@ -664,7 +682,7 @@ export default function GlobePage() {
       scaleCities: t.mapLabels.scale.cities,
       bold: t.mapLabels.weight === 'bold',
       detailAreas,
-      avoid: '.earth-controls, .earth-style, .earth-status, .earth-settings',
+      avoid: '.earth-controls, .earth-style, .earth-status, .earth-settings, .earth-explore',
     });
     layer.setVisible(showWorldNames);
     worldLabelsRef.current = layer;
@@ -994,6 +1012,7 @@ export default function GlobePage() {
 
   // Search result -> fly there.
   const onSearchSelect = (row) => {
+    setExploreOpen(false);
     if (row.bounds) flyToBounds(row.bounds);
     else if (row.lat != null) {
       const height = row.zoom ? Math.max(400, 40000000 / 2 ** row.zoom) : 1500;
@@ -1002,6 +1021,125 @@ export default function GlobePage() {
   };
 
   const openMap = (state) => navigate('/map', state ? { state } : undefined);
+
+  // ------------------------------------------------------------ explore panel: area results + directions
+  const [exploreResults, setExploreResults] = useState([]);
+  const [exploreSelected, setExploreSelected] = useState(null);
+  const [exploreRoute, setExploreRoute] = useState(null);
+  const [exploreOpen, setExploreOpen] = useState(false); // phones: the panel is a sheet opened on demand
+  /** The area in view (for "Search this area"), or null when too far out to mean a place. */
+  const getViewBox = () => {
+    const viewer = viewerRef.current;
+    if (!viewer || camera.lat == null || camera.height > 2500000) return null;
+    const r = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid);
+    if (!r) return null;
+    return {
+      rect: { west: CesiumMath.toDegrees(r.west), south: CesiumMath.toDegrees(r.south), east: CesiumMath.toDegrees(r.east), north: CesiumMath.toDegrees(r.north) },
+      center: { lat: camera.lat, lng: camera.lng },
+    };
+  };
+  // numbered pins for the results
+  useEffect(() => {
+    const ds = sourcesRef.current.explore;
+    if (!ready || !ds) return;
+    ds.entities.removeAll();
+    for (const r of exploreResults) {
+      const on = exploreSelected?.id === r.id;
+      ds.entities.add({
+        id: `explore-${r.id}`,
+        position: Cartesian3.fromDegrees(r.lng, r.lat),
+        billboard: {
+          image: numberedPin(r.n, r.color, on),
+          width: on ? 38 : 30,
+          height: on ? 48 : 38,
+          verticalOrigin: VerticalOrigin.BOTTOM,
+          heightReference: HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        label: on
+          ? {
+              text: r.name,
+              font: '600 14px sans-serif',
+              fillColor: Color.WHITE,
+              outlineColor: Color.BLACK,
+              outlineWidth: 4,
+              style: LabelStyle.FILL_AND_OUTLINE,
+              verticalOrigin: VerticalOrigin.BOTTOM,
+              pixelOffset: new Cartesian2(0, -52),
+              disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            }
+          : undefined,
+        exploreResult: r,
+      });
+    }
+    viewerRef.current?.scene.requestRender();
+  }, [ready, exploreResults, exploreSelected]);
+  // a click on a pin selects that result (instead of Cesium's info box)
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!ready || !viewer) return undefined;
+    return viewer.selectedEntityChanged.addEventListener((entity) => {
+      if (entity?.exploreResult) {
+        setExploreSelected(entity.exploreResult);
+        setExploreOpen(true);
+        viewer.selectedEntity = undefined;
+      }
+    });
+  }, [ready]);
+  const selectExplore = (r) => {
+    setExploreSelected(r);
+    if (r) flyToPoint(r.lat, r.lng, Math.min(Math.max(camera.height || 3000, 900), 4000), 1.4);
+  };
+  // the route on the globe
+  const showRoute = (route, fly) => {
+    const ds = sourcesRef.current.exploreRoute;
+    const viewer = viewerRef.current;
+    setExploreRoute(route);
+    if (!ds || !viewer) return;
+    ds.entities.removeAll();
+    if (!route?.geometry?.length) {
+      viewer.scene.requestRender();
+      return;
+    }
+    const flat = [];
+    for (const [lat, lng] of route.geometry) flat.push(lng, lat);
+    ds.entities.add({
+      polyline: {
+        positions: Cartesian3.fromDegreesArray(flat),
+        width: 7,
+        clampToGround: true,
+        material: new PolylineOutlineMaterialProperty({ color: Color.fromCssColorString('#1a73e8'), outlineColor: Color.WHITE, outlineWidth: 2 }),
+      },
+    });
+    const first = route.geometry[0];
+    const last = route.geometry[route.geometry.length - 1];
+    ds.entities.add({
+      position: Cartesian3.fromDegrees(first[1], first[0]),
+      point: { pixelSize: 14, color: Color.WHITE, outlineColor: Color.fromCssColorString('#1a73e8'), outlineWidth: 4, heightReference: HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    });
+    ds.entities.add({
+      position: Cartesian3.fromDegrees(last[1], last[0]),
+      billboard: { image: numberedPin('', '#ea4335', true), width: 34, height: 44, verticalOrigin: VerticalOrigin.BOTTOM, heightReference: HeightReference.CLAMP_TO_GROUND, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+    });
+    if (fly !== false) {
+      let s = 90, n = -90, w = 180, e = -180;
+      for (const [lat, lng] of route.geometry) {
+        s = Math.min(s, lat);
+        n = Math.max(n, lat);
+        w = Math.min(w, lng);
+        e = Math.max(e, lng);
+      }
+      const pad = Math.max(n - s, e - w) * 0.25 + 0.002;
+      flyToBounds({ south: s - pad, north: n + pad, west: w - pad, east: e + pad }, 1.8);
+    }
+    viewer.scene.requestRender();
+  };
+  const openRouteInMap = (route, end) =>
+    openMap({
+      openDirections: true,
+      directionsTo: end?.lat != null ? { label: end.label, lat: end.lat, lng: end.lng } : null,
+      focus: end?.lat != null ? { type: 'point', lat: end.lat, lng: end.lng, zoom: 15, label: end.label, at: Date.now() } : undefined,
+    });
   const openMapHere = () => {
     if (camera.lat == null) return openMap();
     const z = Math.max(3, Math.min(18, Math.round(Math.log2(40000000 / Math.max(camera.height, 1)))));
@@ -1309,6 +1447,33 @@ export default function GlobePage() {
           <Link to="/map">Open the 2D map</Link>
         </div>
       )}
+      <div className={`earth-explore-wrap ${exploreOpen ? 'open' : ''} ${styleOpen ? 'covered' : ''}`}>
+        <button type="button" className="earth-explore-close" onClick={() => setExploreOpen(false)} aria-label="Close explore">
+          <Icon name="close" size={18} />
+        </button>
+        <EarthExplore
+          uid={uid}
+          online={online}
+          worldNames={worldNames}
+          center={camera.lat != null ? { lat: camera.lat, lng: camera.lng, height: camera.height } : null}
+          getViewBox={getViewBox}
+          onFly={onSearchSelect}
+          results={exploreResults}
+          onResults={(list) => {
+            setExploreResults(list);
+            setExploreSelected(null);
+          }}
+          selected={exploreSelected}
+          onSelect={selectExplore}
+          onRoute={showRoute}
+          onNeedAccount={() => navigate('/login', { state: { from: '/' } })}
+          onOpenMap={openRouteInMap}
+        />
+      </div>
+      <button type="button" className="earth-explore-fab" onClick={() => setExploreOpen(true)} aria-label="Explore: weather, nearby places, directions">
+        <Icon name="compass" size={18} /> Explore
+      </button>
+
       {toast && (
         <div className="earth-toast" role="status">
           {toast}

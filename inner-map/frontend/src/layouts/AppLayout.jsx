@@ -50,11 +50,9 @@ import { formatBytes, getStorageEstimate } from '../offline/storage';
 
 // Sidebar groups. "Route planner" opens the Directions panel on the map.
 const WORKSPACE = [
-  // offline: Map explorer and Route planner are hidden (offline maps open from Offline maps);
-  // Download area is not listed - it opens from the Earth's "Download map" button and shows here
-  // only while it is open
-  { to: '/map', label: 'Map explorer', icon: 'map', end: true, online: true },
-  { to: '/map', label: 'Route planner', icon: 'route2', state: { openDirections: true }, route: true, online: true },
+  // Map explorer and Route planner are not listed: directions live on the Earth, and offline maps
+  // open (on /map) from Offline maps. Download area opens from the Earth's "Download map" button
+  // and is listed only while it is open.
   { to: '/download', label: 'Download area', icon: 'download', onlyWhenOpen: true },
   { to: '/', label: 'Earth', icon: 'globe', end: true },
 ];
@@ -67,7 +65,7 @@ const LIBRARY = [
 const NAV = [...WORKSPACE.filter((n) => !n.route), ...LIBRARY];
 const SECONDARY = [{ to: '/settings', label: 'Settings', icon: 'settings' }];
 const PAGE_TITLE = {
-  '/map': ['Workspace', 'Map explorer'],
+  '/map': ['Your library', 'Offline map'],
   '/download': ['Workspace', 'Download area'],
   '/saved': ['Your library', 'Saved places'],
   '/my-maps': ['Your library', 'Offline maps'],
@@ -79,7 +77,6 @@ const PAGE_TITLE = {
 // Bottom navigation on phones: the four most used places plus "More".
 // (The Layers & KML page is no longer in the navigation; its data and the /layers address remain.)
 const MOBILE = [
-  { to: '/map', label: 'Map', icon: 'map', online: true },
   { to: '/', label: 'Earth', icon: 'globe', end: true },
   { to: '/saved', label: 'Places', icon: 'pin' },
   { to: '/my-maps', label: 'Offline', icon: 'layers' },
@@ -332,7 +329,7 @@ export default function AppLayout() {
           <div className="sheet-backdrop" onClick={() => setMoreOpen(false)} aria-hidden="true" />
           <div className="more-sheet" role="dialog" aria-label="More">
             <span className="sheet-handle" aria-hidden="true" />
-            {[WORKSPACE[1], ...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].filter(visible).map((item) => (
+            {[...NAV.filter((n) => !MOBILE.some((m) => m.to === n.to)), ...SECONDARY].filter(visible).map((item) => (
               <NavLink key={item.label} to={item.to} state={item.state} className="nav-item">
                 <Icon name={item.icon} size={18} />
                 <span>{item.label}</span>

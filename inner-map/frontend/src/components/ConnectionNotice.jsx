@@ -4,25 +4,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import Icon from './Icon';
+import { openOfflineCenter } from '../offline/offlineCenterEvents';
 import '../styles/connection.css';
 
 /** Pill that shows the connection and switches offline mode on and off. */
 export function OfflineModeToggle({ className = '' }) {
-  const { status, offlineMode, networkOnline, setOfflineMode } = useConnectivity();
+  const { status, offlineMode, setOfflineMode } = useConnectivity();
   const label = offlineMode ? 'Offline mode' : status === 'offline' ? 'Offline' : status === 'limited' ? 'Server unreachable' : 'Online';
   const title = offlineMode
-    ? 'Offline mode is on: InnerMap uses only maps and places stored on this device. Click to go online.'
+    ? 'Offline mode is on: InnerMap uses only maps and places stored on this device. Click to see what works offline, or to go online.'
     : status === 'offline'
       ? 'No internet connection - InnerMap is using the maps and places stored on this device.'
-      : 'Click to switch to offline mode (uses only data stored on this device).';
+      : 'Switch to offline mode (uses only data stored on this device).';
+  // online: switch offline mode on (its screen opens by itself); offline: show the Offline mode screen
+  const onClick = () => (offlineMode || status === 'offline' ? openOfflineCenter() : setOfflineMode(true));
   return (
     <button
       type="button"
       className={`conn-toggle conn-${offlineMode ? 'forced' : status} ${className}`}
-      onClick={() => setOfflineMode(!offlineMode)}
+      onClick={onClick}
       aria-pressed={offlineMode}
+      aria-haspopup="dialog"
       title={title}
-      disabled={!offlineMode && !networkOnline}
     >
       <span className="conn-toggle-dot" aria-hidden="true" />
       <Icon name={offlineMode || status === 'offline' ? 'wifiOff' : 'wifi'} size={15} />
@@ -39,17 +42,15 @@ export default function ConnectionNotice() {
   useEffect(() => {
     const p = prev.current;
     prev.current = { online, offlineMode, networkOnline };
+    // offline now: the Offline mode screen says so - drop any earlier "back online" notice
+    if (offlineMode || !networkOnline) {
+      setNotice(null);
+      return undefined;
+    }
     let next = null;
-    if (offlineMode && !p.offlineMode) {
-      next = { tone: 'off', title: 'Offline mode is on', text: 'InnerMap now uses only the maps, places and road data stored on this device.' };
-    } else if (!offlineMode && p.offlineMode) {
+    // going offline is shown by the Offline mode screen (OfflineCenter); this only says when we are back
+    if (!offlineMode && p.offlineMode) {
       next = { tone: 'on', title: 'Back online', text: 'Online maps, search, weather and directions are available again.' };
-    } else if (!offlineMode && p.networkOnline && !networkOnline) {
-      next = {
-        tone: 'off',
-        title: 'You are offline',
-        text: 'Switched to offline mode automatically: downloaded maps, saved places and offline directions keep working.',
-      };
     } else if (!offlineMode && !p.networkOnline && networkOnline) {
       next = { tone: 'on', title: 'Back online', text: 'The connection is back.' };
     }

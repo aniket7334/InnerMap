@@ -61,6 +61,7 @@ app.use('/api/layers', require('./routes/layerRoutes'));
 app.use('/api/features', require('./routes/featureRoutes'));
 app.use('/api/routing', require('./routes/routingRoutes'));
 app.use('/api/map-areas', require('./routes/mapAreaRoutes'));
+app.use('/api/offline', require('./routes/offlineRoutes'));
 
 app.use(notFound);
 app.use(errorHandler);

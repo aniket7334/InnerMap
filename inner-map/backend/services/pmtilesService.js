@@ -96,6 +96,7 @@ async function getInfo(mainFile, areasDir, names = {}) {
       bounds: boundsOf(a.header),
       maxZoom: a.header.maxZoom,
       bytes: fs.statSync(a.file).size,
+      updatedAt: Math.round(fs.statSync(a.file).mtimeMs), // when the server's data for this area last changed
     };
   });
   const union = areas.reduce(

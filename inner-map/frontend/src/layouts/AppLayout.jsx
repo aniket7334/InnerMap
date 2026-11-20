@@ -16,6 +16,7 @@ import SearchBox from '../components/SearchBox';
 import { warmUpRouting } from '../routing/routingManager';
 import { ensureSearchIndexes } from '../offline/downloadManager';
 import Icon from '../components/Icon';
+import { OfflineModeToggle } from '../components/ConnectionNotice';
 import { gpsState } from '../components/GpsStatus';
 import { formatDistance } from '../maps/geo';
 

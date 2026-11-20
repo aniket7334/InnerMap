@@ -1,21 +1,50 @@
 // Directions panel: start + destination, travel mode, online/offline routing, results.
+// Laid out as floating cards: the route card (where from / where to / how), an explore card before
+// a route is found (recent destinations, find nearby by category - real search, offline first),
+// and the result card (time, distance, arrival, start navigation, steps).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useLocation } from '../hooks/LocationContext';
 import { useSavedLocations } from '../hooks/useSavedLocations';
+import { useRegions } from '../hooks/useRegions';
 import { calculateRoute, offlineCoverage, RouteError } from '../routing/routingManager';
 import { searchPlaces } from '../services/geocodeService';
+import { searchOffline, searchOnline } from '../search/placeSearch';
 import { formatCoord, formatDistance } from '../maps/geo';
 import Icon from './Icon';
+import '../styles/directions.css';
 
 const MODES = [
-  { id: 'car', label: 'Drive' },
-  { id: 'foot', label: 'Walk' },
-  { id: 'bike', label: 'Cycle' },
-  { id: 'motorcycle', label: 'Motorbike' },
+  { id: 'car', label: 'Drive', icon: 'car' },
+  { id: 'foot', label: 'Walk', icon: 'walk' },
+  { id: 'bike', label: 'Cycle', icon: 'bike' },
+  { id: 'motorcycle', label: 'Motorbike', icon: 'moto' },
+];
+
+// "Find nearby": search categories (search/categories.js) with an icon and a colour each.
+const NEARBY = [
+  { id: 'restaurants', label: 'Food', icon: 'food', color: '#e8453c' },
+  { id: 'hotels', label: 'Hotels', icon: 'bed', color: '#8e5cf7' },
+  { id: 'hospitals', label: 'Hospitals', icon: 'medical', color: '#d81b60' },
+  { id: 'fuel', label: 'Petrol', icon: 'fuel', color: '#00897b' },
+  { id: 'shopping', label: 'Shopping', icon: 'bag', color: '#ef6c00' },
+  { id: 'atm', label: 'ATMs', icon: 'atm', color: '#2e7d32' },
+  { id: 'transport', label: 'Transport', icon: 'train', color: '#1a73e8' },
+  { id: 'grocery', label: 'Grocery', icon: 'cart', color: '#7cb342' },
 ];
 
 const COORD_RE = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+const RECENT_MAX = 5;
+const recentKey = (userId) => `innermap.recent-destinations.${userId || 'guest'}`;
+
+function readRecent(userId) {
+  try {
+    const list = JSON.parse(localStorage.getItem(recentKey(userId)));
+    return Array.isArray(list) ? list.filter((r) => r && r.label && Number.isFinite(r.lat) && Number.isFinite(r.lng)) : [];
+  } catch {
+    return [];
+  }
+}
 
 export function formatDuration(s) {
   if (!Number.isFinite(s)) return '-';
@@ -25,7 +54,7 @@ export function formatDuration(s) {
 }
 
 /** One location field: free text with a suggestion list. */
-function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus }) {
+function PlaceField({ label, value, onChange, onPick, picking, places, position, online, autoFocus, marker }) {
   const [text, setText] = useState(value?.label || '');
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState({ q: '', items: [], loading: false, error: null });
@@ -61,13 +90,15 @@ function PlaceField({ label, value, onChange, onPick, picking, places, position,
   };
 
   return (
-    <div className="place-field" ref={ref}>
-      <label className="place-field-label">{label}</label>
+    <div className="place-field rp-field" ref={ref}>
+      <span className={`rp-marker rp-marker-${marker}`} aria-hidden="true" />
+      <label className="sr-only">{label}</label>
       <div className="place-field-row">
         <input
           value={text}
           autoFocus={autoFocus}
-          placeholder="Place, address or lat, lng"
+          aria-label={label}
+          placeholder={marker === 'start' ? 'Choose a starting point' : 'Where to?'}
           onChange={(e) => {
             setText(e.target.value);
             setOpen(true);
@@ -83,13 +114,13 @@ function PlaceField({ label, value, onChange, onPick, picking, places, position,
         />
         <button
           type="button"
-          className={`icon-btn ${picking ? 'active' : ''}`}
+          className={`icon-btn rp-pick ${picking ? 'active' : ''}`}
           onClick={onPick}
           title="Choose on the map"
           aria-label={`Choose ${label.toLowerCase()} on the map`}
           aria-pressed={picking}
         >
-          <Icon name="pin" size={15} />
+          <Icon name="pin" size={16} />
         </button>
       </div>
       {open && (
@@ -154,6 +185,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
   const { status } = useConnectivity();
   const { position, locateOnce } = useLocation();
   const { locations } = useSavedLocations(userId);
+  const { regions } = useRegions(userId);
   const [start, setStart] = useState({ label: 'My location', kind: 'gps' });
   const [end, setEnd] = useState(null);
   const [profile, setProfile] = useState('car');
@@ -163,10 +195,14 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
   const [busy, setBusy] = useState(false);
   const [coverage, setCoverage] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
+  const [stepsOpen, setStepsOpen] = useState(false);
+  const [recent, setRecent] = useState(() => readRecent(userId));
+  const [nearby, setNearby] = useState(null); // { cat, loading, items, error }
 
   const online = status !== 'offline';
   const serverReachable = status === 'online';
   const plannedMode = preference === 'auto' ? (serverReachable ? 'online' : 'offline') : preference;
+  const indexedIds = useMemo(() => regions.filter((r) => r.search?.status === 'completed').map((r) => r.id), [regions]);
 
   useEffect(() => {
     const load = () => offlineCoverage(userId).then(setCoverage).catch(() => setCoverage([]));
@@ -206,7 +242,19 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
     return v.lat != null ? { lat: v.lat, lng: v.lng } : null;
   };
 
-  const find = async (pref = preference) => {
+  const remember = (dest) => {
+    if (!dest || dest.lat == null || dest.kind === 'gps') return;
+    const item = { label: dest.label, lat: dest.lat, lng: dest.lng };
+    const next = [item, ...recent.filter((r) => r.label !== item.label)].slice(0, RECENT_MAX);
+    setRecent(next);
+    try {
+      localStorage.setItem(recentKey(userId), JSON.stringify(next));
+    } catch {
+      /* private window: recent destinations last for this visit only */
+    }
+  };
+
+  const find = async (pref = preference, dest = end) => {
     setError(null);
     setBusy(true);
     try {
@@ -216,18 +264,28 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
       } catch {
         throw new RouteError('Your GPS position is not available. Choose a starting point on the map, a saved place or coordinates.');
       }
-      const to = await resolve(end);
+      const to = await resolve(dest);
       if (!from) throw new RouteError('Choose a starting point.');
       if (!to) throw new RouteError('Choose a destination.');
       const r = await calculateRoute({ userId, profile, from, to, preference: pref });
       setRoute({ ...r, profile, calculatedAt: Date.now() });
       setCollapsed(false);
+      setStepsOpen(false);
+      remember(dest);
     } catch (err) {
       setRoute(null);
       setError(err instanceof RouteError ? err : new RouteError(err.message || 'Routing failed.'));
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Destination chosen from Recent or Find nearby: set it and find the route straight away. */
+  const goTo = (v) => {
+    setEnd(v);
+    setRoute(null);
+    setNearby(null);
+    find(preference, v);
   };
 
   const swap = () => {
@@ -243,187 +301,329 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
     setPick(null);
   };
 
+  // Nearby places of a category around the start point (downloaded areas first, then online).
+  const searchNearby = async (cat) => {
+    const origin = endpoints.start || (position ? { lat: position.lat, lng: position.lng } : null);
+    if (!origin) {
+      setNearby({ cat, loading: false, items: [], error: 'Choose a starting point first (or allow location access) to find places near it.' });
+      return;
+    }
+    setNearby({ cat, loading: true, items: [], error: null });
+    let items = [];
+    let error = null;
+    try {
+      if (indexedIds.length) {
+        const r = await searchOffline({ category: cat.id, regionIds: indexedIds, origin, radiusM: 15000, limit: 8 });
+        items = r.results;
+      }
+      if (items.length < 3 && online) {
+        try {
+          const more = await searchOnline({ category: cat.id, origin });
+          const seen = new Set(items.map((i) => i.name.toLowerCase()));
+          items = [...items, ...more.filter((m) => !seen.has(m.name.toLowerCase()))];
+        } catch (err) {
+          if (!items.length) error = err.message;
+        }
+      }
+      items.sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity));
+      if (!items.length && !error) {
+        error = online
+          ? `No ${cat.label.toLowerCase()} found within about 10 km.`
+          : `No ${cat.label.toLowerCase()} in your downloaded areas near here. Online search needs internet.`;
+      }
+    } catch (err) {
+      error = err.message || 'Search failed.';
+    }
+    setNearby({ cat, loading: false, items: items.slice(0, 8), error });
+  };
+
+  const mode = MODES.find((m) => m.id === (route?.profile || profile)) || MODES[0];
+  const arrive = route ? new Date((route.calculatedAt || Date.now()) + route.duration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
   return (
-    <div className={`route-panel ${collapsed ? 'collapsed' : ''}`} role="dialog" aria-label="Directions">
-      <div className="route-head">
-        <button type="button" className="route-title" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed}>
-          <strong>Directions</strong>
-          {route && collapsed && (
-            <span className="muted small">
-              {' '}
-              · {formatDistance(route.distance)} · {formatDuration(route.duration)}
-            </span>
-          )}
-        </button>
-        <span className={`mode-badge mode-${route ? route.mode : plannedMode}`}>
-          {route ? (route.mode === 'online' ? 'Online route' : 'Offline route') : plannedMode === 'online' ? 'Online' : 'Offline'}
-        </span>
-        <button type="button" className="icon-btn" onClick={onClose} aria-label="Close directions">
-          <Icon name="close" size={15} />
-        </button>
-      </div>
+    <div className={`route-panel rp ${collapsed ? 'collapsed' : ''}`} role="dialog" aria-label="Directions">
+      {/* ---------------- route card: where from, where to, how */}
+      <section className="rp-card rp-plan">
+        <div className="rp-head">
+          <button type="button" className="rp-title" onClick={() => setCollapsed((c) => !c)} aria-expanded={!collapsed}>
+            <Icon name="route2" size={18} />
+            <strong>Directions</strong>
+            {route && collapsed && (
+              <span className="rp-title-sum">
+                {formatDuration(route.duration)} · {formatDistance(route.distance)}
+              </span>
+            )}
+          </button>
+          <span className={`mode-badge mode-${route ? route.mode : plannedMode}`}>
+            {route ? (route.mode === 'online' ? 'Online route' : 'Offline route') : plannedMode === 'online' ? 'Online' : 'Offline'}
+          </span>
+          <button type="button" className="icon-btn" onClick={() => setCollapsed((c) => !c)} aria-label={collapsed ? 'Expand directions' : 'Collapse directions'}>
+            <Icon name="chevronDown" size={16} className={collapsed ? '' : 'rp-flip'} />
+          </button>
+          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close directions">
+            <Icon name="close" size={16} />
+          </button>
+        </div>
 
-      {!collapsed && (
-        <div className="route-body">
-          <div className="route-fields">
-            <PlaceField
-              label="Start"
-              value={start}
-              onChange={(v) => {
-                setStart(v);
-                setRoute(null);
-              }}
-              onPick={() => setPick(pick === 'start' ? null : 'start')}
-              picking={pick === 'start'}
-              places={locations}
-              position={position}
-              online={online}
-            />
-            <button type="button" className="icon-btn swap-btn" onClick={swap} title="Swap start and destination" aria-label="Swap start and destination">
-              ⇅
-            </button>
-            <PlaceField
-              label="Destination"
-              value={end}
-              onChange={(v) => {
-                setEnd(v);
-                setRoute(null);
-              }}
-              onPick={() => setPick(pick === 'end' ? null : 'end')}
-              picking={pick === 'end'}
-              places={locations}
-              position={position}
-              online={online}
-              autoFocus
-            />
-          </div>
+        {!collapsed && (
+          <div className="rp-body">
+            <div className="rp-fields">
+              <div className="rp-line" aria-hidden="true" />
+              <PlaceField
+                label="Start"
+                marker="start"
+                value={start}
+                onChange={(v) => {
+                  setStart(v);
+                  setRoute(null);
+                }}
+                onPick={() => setPick(pick === 'start' ? null : 'start')}
+                picking={pick === 'start'}
+                places={locations}
+                position={position}
+                online={online}
+              />
+              <PlaceField
+                label="Destination"
+                marker="end"
+                value={end}
+                onChange={(v) => {
+                  setEnd(v);
+                  setRoute(null);
+                }}
+                onPick={() => setPick(pick === 'end' ? null : 'end')}
+                picking={pick === 'end'}
+                places={locations}
+                position={position}
+                online={online}
+                autoFocus
+              />
+              <button type="button" className="rp-swap" onClick={swap} title="Swap start and destination" aria-label="Swap start and destination">
+                <Icon name="swap" size={18} />
+              </button>
+            </div>
 
-          <div className="row between">
-            <div className="tabs route-modes" role="tablist" aria-label="Travel mode">
+            <div className="rp-modes" role="tablist" aria-label="Travel mode">
               {MODES.map((m) => (
                 <button
                   key={m.id}
                   type="button"
                   role="tab"
                   aria-selected={profile === m.id}
-                  className={`tab ${profile === m.id ? 'active' : ''}`}
+                  className={profile === m.id ? 'on' : ''}
                   onClick={() => {
                     setProfile(m.id);
                     setRoute(null);
                   }}
+                  title={m.label}
                 >
-                  {m.label}
+                  <Icon name={m.icon} size={20} />
+                  <span>{m.label}</span>
                 </button>
               ))}
             </div>
-            <select
-              className="route-pref"
-              value={preference}
-              onChange={(e) => {
-                setPreference(e.target.value);
-                setRoute(null);
-              }}
-              aria-label="Routing source"
-              title="Where the route is calculated"
-            >
-              <option value="auto">Auto</option>
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
 
-          <p className="route-source muted small">
-            {plannedMode === 'online'
-              ? 'Calculated online from OpenStreetMap road data by the routing service.'
-              : coverage.length
-                ? `Calculated on this device from downloaded road data: ${coverage.map((c) => c.name).join(', ')}.`
-                : 'No road data downloaded yet - offline directions need it (Download area → include road data).'}
-          </p>
-
-          <div className="row">
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => find()} disabled={busy || !end}>
-              {busy ? 'Finding route...' : 'Find route'}
-            </button>
-            <button type="button" className="btn btn-sm" onClick={clear} disabled={busy || (!route && !end)}>
-              Clear
-            </button>
-          </div>
-
-          {pick && <p className="small route-hint">Click the map to choose the {pick === 'start' ? 'start' : 'destination'}.</p>}
-
-          {error && (
-            <div className="route-error" role="alert">
-              <p>{error.message}</p>
-              <div className="row wrap">
-                {error.canTryOffline && (
-                  <button type="button" className="btn btn-sm" onClick={() => find('offline')}>
-                    Use offline road data instead
-                  </button>
-                )}
-                {error.canTryOnline && (
-                  <button type="button" className="btn btn-sm" onClick={() => find('online')}>
-                    Try online routing
-                  </button>
-                )}
-              </div>
+            <div className="rp-actions">
+              <button type="button" className="rp-find" onClick={() => find()} disabled={busy || !end}>
+                <Icon name="navigation" size={16} /> {busy ? 'Finding route…' : 'Find route'}
+              </button>
+              <button type="button" className="rp-clear" onClick={clear} disabled={busy || (!route && !end)}>
+                Clear
+              </button>
+              <select
+                className="rp-pref"
+                value={preference}
+                onChange={(e) => {
+                  setPreference(e.target.value);
+                  setRoute(null);
+                }}
+                aria-label="Routing source"
+                title="Where the route is calculated"
+              >
+                <option value="auto">Auto</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+              </select>
             </div>
-          )}
 
-          {route && (
-            <div className="route-result">
-              <div className="route-summary">
-                <span className="route-distance">{formatDistance(route.distance)}</span>
-                <span className="route-duration">
-                  {route.durationIsEstimate ? '≈ ' : ''}
-                  {formatDuration(route.duration)}
-                </span>
-                <span className="route-eta" title="Arrival time if you leave now">
-                  arrive {route.durationIsEstimate ? '≈ ' : ''}
-                  {new Date((route.calculatedAt || Date.now()) + route.duration * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+            <p className="rp-note">
+              {plannedMode === 'online'
+                ? 'Calculated online from OpenStreetMap road data by the routing service.'
+                : coverage.length
+                  ? `Calculated on this device from downloaded road data: ${coverage.map((c) => c.name).join(', ')}.`
+                  : 'No road data downloaded yet - offline directions need it (Download area → include road data).'}
+            </p>
+
+            {pick && <p className="rp-hint">Click the map to choose the {pick === 'start' ? 'start' : 'destination'}.</p>}
+
+            {error && (
+              <div className="route-error" role="alert">
+                <p>{error.message}</p>
+                <div className="row wrap">
+                  {error.canTryOffline && (
+                    <button type="button" className="btn btn-sm" onClick={() => find('offline')}>
+                      Use offline road data instead
+                    </button>
+                  )}
+                  {error.canTryOnline && (
+                    <button type="button" className="btn btn-sm" onClick={() => find('online')}>
+                      Try online routing
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="muted tiny">Distance along roads{route.steps?.length ? ` · ${route.steps.length} steps` : ''}</p>
-              <p className="muted tiny">
-                {route.mode === 'online' ? 'Online' : 'Offline'} · {route.providerLabel}
-                {route.durationIsEstimate ? ' · time estimated from road types, without live traffic' : ''}
-                {route.snapped && (route.snapped.start.offset > 30 || route.snapped.end.offset > 30)
-                  ? ` · joined the nearest road ${Math.max(route.snapped.start.offset, route.snapped.end.offset)} m away`
-                  : ''}
-              </p>
-              {route.profileNote && (
-                <p className={`route-note ${route.profileFallback ? 'warn' : ''}`}>{route.profileNote}</p>
-              )}
-              {onStartNavigation && (
-                <button
-                  type="button"
-                  className="btn btn-primary btn-block nav-start"
-                  onClick={() => {
-                    const last = route.geometry[route.geometry.length - 1];
-                    onStartNavigation({
-                      route,
-                      profile: route.profile || profile, // the mode this route was calculated for
-                      to: end?.lat != null ? { lat: end.lat, lng: end.lng } : { lat: last[0], lng: last[1] },
-                      toLabel: end?.label || 'Destination',
-                    });
-                  }}
-                >
-                  <Icon name="navigation" size={15} /> Start navigation
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ---------------- explore card: recent + find nearby (before a route) */}
+      {!collapsed && !route && !busy && (
+        <section className="rp-card rp-explore">
+          {nearby ? (
+            <>
+              <div className="rp-section-head">
+                <button type="button" className="icon-btn" onClick={() => setNearby(null)} aria-label="Back to categories">
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                    <path d="M20 12H5m6-7-7 7 7 7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </button>
-              )}
-              <ol className="route-steps">
-                {route.steps.map((s, i) => (
-                  <li key={i}>
-                    <button type="button" onClick={() => onFocusPoint({ lat: s.lat, lng: s.lng })}>
-                      <span>{s.text}</span>
-                      {s.distance > 0 && <span className="muted small">{formatDistance(s.distance)}</span>}
+                <span className="rp-cat-badge" style={{ '--c': nearby.cat.color }}>
+                  <Icon name={nearby.cat.icon} size={16} />
+                </span>
+                <h3>{nearby.cat.label} nearby</h3>
+              </div>
+              {nearby.loading && <p className="rp-empty">Searching near {start?.kind === 'gps' ? 'your location' : 'the start'}…</p>}
+              {nearby.error && <p className="rp-empty">{nearby.error}</p>}
+              <ul className="rp-list">
+                {nearby.items.map((it) => (
+                  <li key={it.id}>
+                    <button type="button" onClick={() => goTo({ label: it.name, lat: it.lat, lng: it.lng, kind: 'search' })}>
+                      <span className="rp-cat-badge small" style={{ '--c': nearby.cat.color }}>
+                        <Icon name={nearby.cat.icon} size={14} />
+                      </span>
+                      <span className="rp-list-text">
+                        <strong>{it.name}</strong>
+                        <small>
+                          {[it.type, it.address].filter(Boolean).join(' · ') || (it.source === 'offline' ? 'Downloaded map data' : 'OpenStreetMap')}
+                        </small>
+                      </span>
+                      {it.distance != null && <span className="rp-dist">{formatDistance(it.distance)}</span>}
                     </button>
                   </li>
                 ))}
-              </ol>
-              <p className="muted tiny">{route.attribution}</p>
-            </div>
+              </ul>
+            </>
+          ) : (
+            <>
+              {recent.length > 0 && (
+                <>
+                  <h3 className="rp-h3">Recent</h3>
+                  <ul className="rp-list rp-recent">
+                    {recent.map((r) => (
+                      <li key={r.label}>
+                        <button type="button" onClick={() => goTo({ ...r, kind: 'search' })}>
+                          <Icon name="clock" size={18} className="rp-muted-icon" />
+                          <span className="rp-list-text">
+                            <strong>{r.label}</strong>
+                          </span>
+                          <Icon name="arrowRight" size={16} className="rp-muted-icon" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div className="rp-section-head rp-nearby-head">
+                <h3>Find nearby</h3>
+                <small>{start?.kind === 'gps' ? 'near your location' : 'near the start'}</small>
+              </div>
+              <div className="rp-grid">
+                {NEARBY.map((c) => (
+                  <button key={c.id} type="button" className="rp-cat" style={{ '--c': c.color }} onClick={() => searchNearby(c)}>
+                    <span className="rp-cat-badge">
+                      <Icon name={c.icon} size={22} />
+                    </span>
+                    <span>{c.label}</span>
+                  </button>
+                ))}
+              </div>
+            </>
           )}
-        </div>
+        </section>
+      )}
+
+      {/* ---------------- result card */}
+      {!collapsed && route && (
+        <section className="rp-card rp-result">
+          <div className="rp-result-top">
+            <span className="rp-mode-icon">
+              <Icon name={mode.icon} size={22} />
+            </span>
+            <div className="rp-result-main">
+              <div className="rp-time">
+                {route.durationIsEstimate ? '≈ ' : ''}
+                {formatDuration(route.duration)}
+              </div>
+              <div className="rp-sub">
+                {formatDistance(route.distance)} · arrive {route.durationIsEstimate ? '≈ ' : ''}
+                {arrive}
+              </div>
+            </div>
+          </div>
+          <div className="rp-dest">
+            <span className="rp-marker rp-marker-end" aria-hidden="true" />
+            <span>{end?.label || 'Destination'}</span>
+          </div>
+          <p className="rp-note">
+            {route.mode === 'online' ? 'Online' : 'Offline'} · {route.providerLabel}
+            {route.durationIsEstimate ? ' · time estimated from road types, without live traffic' : ''}
+            {route.snapped && (route.snapped.start.offset > 30 || route.snapped.end.offset > 30)
+              ? ` · joined the nearest road ${Math.max(route.snapped.start.offset, route.snapped.end.offset)} m away`
+              : ''}
+          </p>
+          {route.profileNote && <p className={`route-note ${route.profileFallback ? 'warn' : ''}`}>{route.profileNote}</p>}
+          {onStartNavigation && (
+            <button
+              type="button"
+              className="rp-start"
+              onClick={() => {
+                const last = route.geometry[route.geometry.length - 1];
+                onStartNavigation({
+                  route,
+                  profile: route.profile || profile, // the mode this route was calculated for
+                  to: end?.lat != null ? { lat: end.lat, lng: end.lng } : { lat: last[0], lng: last[1] },
+                  toLabel: end?.label || 'Destination',
+                });
+              }}
+            >
+              <Icon name="navigation" size={18} /> Start navigation
+            </button>
+          )}
+          {route.steps?.length > 0 && (
+            <>
+              <button type="button" className="rp-steps-toggle" onClick={() => setStepsOpen((o) => !o)} aria-expanded={stepsOpen}>
+                <span>
+                  {route.steps.length} step{route.steps.length === 1 ? '' : 's'}
+                </span>
+                <Icon name="chevronDown" size={16} className={stepsOpen ? 'rp-flip' : ''} />
+              </button>
+              {stepsOpen && (
+                <ol className="route-steps rp-steps">
+                  {route.steps.map((s, i) => (
+                    <li key={i}>
+                      <button type="button" onClick={() => onFocusPoint({ lat: s.lat, lng: s.lng })}>
+                        <span>{s.text}</span>
+                        {s.distance > 0 && <span className="muted small">{formatDistance(s.distance)}</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </>
+          )}
+          <p className="rp-attr">{route.attribution}</p>
+        </section>
       )}
     </div>
   );

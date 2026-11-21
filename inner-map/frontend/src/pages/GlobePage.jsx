@@ -78,6 +78,8 @@ import { formatBytes } from '../offline/storage';
 import { confirmDialog } from '../components/ConfirmDialog';
 
 const VECTOR = PROVIDERS.find((p) => p.kind === 'vector');
+// the server's optional globe datasets (an absolute address in the Android app, where '/' is the app itself)
+const GLOBE_DATA_URL = import.meta.env.VITE_GLOBE_DATA_URL || '/globe-data';
 const IMAGERY = {
   satellite: `Satellite - ${SATELLITE_SOURCE.label}`,
   naturalEarth: 'Natural Earth (built-in, offline)',
@@ -569,7 +571,7 @@ export default function GlobePage() {
   // ------------------------------------------------------------ local datasets
   useEffect(() => {
     if (!serverReachable) return;
-    fetch('/globe-data/metadata', { cache: 'no-store' })
+    fetch(`${GLOBE_DATA_URL}/metadata`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setGlobeData(d))
       .catch(() => {});
@@ -580,7 +582,7 @@ export default function GlobePage() {
     if (!ready || !viewer) return undefined;
     let cancelled = false;
     if (terrainOn && globeData.terrain.available && serverReachable) {
-      CesiumTerrainProvider.fromUrl('/globe-data/terrain')
+      CesiumTerrainProvider.fromUrl(`${GLOBE_DATA_URL}/terrain`)
         .then((tp) => {
           if (!cancelled && !viewer.isDestroyed()) viewer.terrainProvider = tp;
         })
@@ -665,7 +667,7 @@ export default function GlobePage() {
       const y = im.scheme === 'tms' ? '{reverseY}' : '{y}';
       layer = new ImageryLayer(
         new UrlTemplateImageryProvider({
-          url: `/globe-data/imagery/{z}/{x}/${y}.${im.format}`,
+          url: `${GLOBE_DATA_URL}/imagery/{z}/{x}/${y}.${im.format}`,
           minimumLevel: im.minZoom,
           maximumLevel: im.maxZoom,
           rectangle: im.bounds ? rect(im.bounds) : undefined,

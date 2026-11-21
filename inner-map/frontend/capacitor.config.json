@@ -1,0 +1,12 @@
+{
+  "appId": "com.innermap.app",
+  "appName": "Inner Map",
+  "webDir": "dist-android",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

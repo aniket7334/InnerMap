@@ -3,6 +3,8 @@
 // Vite serves source modules with hot reload, which must not be cached.
 export function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
+  // Inside the Android app (Capacitor) the app files are part of the app itself: no worker needed.
+  if (window.Capacitor?.isNativePlatform?.()) return;
 
   if (!import.meta.env.PROD) {
     // Remove a worker left over from a previous production test on the same origin.

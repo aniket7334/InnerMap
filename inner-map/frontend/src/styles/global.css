@@ -4316,3 +4316,436 @@ html.no-scroll body {
     animation: none;
   }
 }
+
+/* ---------------------------------------------------------------- navigation screen (NavigationView) */
+.nv {
+  --nv-blue: #1a73e8;
+  position: absolute;
+  inset: 0;
+  z-index: 960;
+  pointer-events: none;
+  font-family: inherit;
+}
+.nv > *,
+.nv-float > * {
+  pointer-events: auto;
+}
+.nv-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  width: min(440px, calc(100% - 96px));
+  overflow: hidden;
+  border-radius: 18px;
+  background: var(--nv-blue);
+  color: #fff;
+  box-shadow: 0 14px 30px -14px rgba(10, 40, 100, 0.75);
+  transform: translateX(-50%);
+}
+.nv-banner.waiting {
+  background: #3c4655;
+}
+.nv-banner.arrived {
+  background: #0f9d58;
+}
+.nv-banner-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 12px;
+}
+.nv-arrow {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+}
+.nv-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.15;
+}
+.nv-text strong {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.nv-text span {
+  overflow: hidden;
+  margin-top: 3px;
+  font-size: 17px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.95;
+}
+.nv-banner.waiting .nv-text strong {
+  font-size: 20px;
+}
+.nv-banner.waiting .nv-text span {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: normal;
+}
+.nv-then {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 18px;
+  background: rgba(0, 0, 0, 0.18);
+  font-size: 13px;
+  font-weight: 600;
+}
+.nv-then span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nv-full {
+  padding: 0 18px 10px 84px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.nv-then + .nv-full {
+  display: none;
+}
+.nv-warn {
+  position: absolute;
+  top: calc(12px + 110px);
+  left: 50%;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+}
+.nv-warn.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+.nv-warn button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* floating row above the bottom card */
+.nv-float {
+  position: absolute;
+  left: 50%;
+  bottom: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  width: min(440px, calc(100% - 24px));
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+.nv-speed {
+  display: grid;
+  flex: none;
+  place-items: center;
+  align-content: center;
+  width: 58px;
+  height: 58px;
+  border: 3px solid #1f2937;
+  border-radius: 50%;
+  background: #fff;
+  color: #111827;
+  line-height: 1;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.5);
+}
+.nv-speed strong {
+  font-size: 20px;
+  font-weight: 800;
+}
+.nv-speed span {
+  margin-top: 2px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #6b7280;
+}
+.nv-road {
+  overflow: hidden;
+  max-width: 60%;
+  margin: 0 auto 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.45);
+}
+.nv-float-right {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-left: auto;
+  pointer-events: none;
+}
+.nv-round {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 6px 16px -8px rgba(0, 0, 0, 0.5);
+}
+.nv-round.on {
+  color: var(--nv-blue);
+}
+
+/* bottom card */
+.nv-card {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  width: min(440px, calc(100% - 24px));
+  padding: 14px 16px 12px;
+  border-radius: 20px;
+  background: #fff;
+  color: #111827;
+  box-shadow: 0 16px 36px -14px rgba(2, 6, 23, 0.55);
+  transform: translateX(-50%);
+}
+.nv-stats {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+}
+.nv-stats > div {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.05;
+}
+.nv-stats strong {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.nv-stats span {
+  margin-top: 3px;
+  color: #6b7280;
+  font-size: 13px;
+  font-weight: 600;
+}
+.nv-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f3f5;
+  color: #374151;
+  cursor: pointer;
+}
+.nv-close:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.nv-progress {
+  position: relative;
+  height: 6px;
+  margin: 16px 8px 10px;
+  border-radius: 3px;
+  background: #e5e7eb;
+}
+.nv-progress-done {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: #9aa5b1;
+}
+.nv-progress::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+.nv-progress-start,
+.nv-progress-end {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+}
+.nv-progress-start {
+  left: 0;
+  border: 2px solid #9aa5b1;
+}
+.nv-progress-end {
+  left: 100%;
+  border: 3px solid var(--nv-blue);
+}
+.nv-progress-me {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--nv-blue);
+  color: #fff;
+  box-shadow: 0 0 0 3px #fff;
+  transform: translate(-50%, -50%);
+  transition: left 0.5s;
+}
+.nv-progress {
+  background: linear-gradient(var(--nv-blue), var(--nv-blue));
+}
+.nv-progress-done {
+  z-index: 0;
+}
+.nv-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: #6b7280;
+  font-size: 12px;
+}
+.nv-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: var(--nv-blue);
+  font-weight: 600;
+}
+.nv-chip.offline {
+  background: #e6f4ea;
+  color: #137333;
+}
+.nv-acc.acc-good {
+  color: #137333;
+}
+.nv-acc.acc-poor {
+  color: #b45309;
+}
+.nv-link {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--nv-blue);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nv-link:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* your position while navigating */
+.nav-arrow-icon span {
+  display: block;
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.35));
+  transition: transform 0.4s;
+}
+
+:root[data-theme='dark'] .nv-card,
+:root[data-theme='dark'] .nv-road,
+:root[data-theme='dark'] .nv-round {
+  background: #202124;
+  color: #e8eaed;
+}
+:root[data-theme='dark'] .nv-close {
+  background: #303134;
+  color: #e8eaed;
+}
+
+@media (max-width: 640px) {
+  .nv-banner {
+    top: 8px;
+    width: calc(100% - 16px);
+    border-radius: 16px;
+  }
+  .nv-text strong {
+    font-size: 26px;
+  }
+  .nv-float {
+    bottom: 146px;
+  }
+  .nv-card {
+    bottom: 8px;
+    width: calc(100% - 16px);
+  }
+  .nv-stats {
+    gap: 16px;
+  }
+  .nv-stats strong {
+    font-size: 22px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-arrow-icon span,
+  .nv-progress-me {
+    transition: none;
+  }
+}
+/* navigating: keep the map credits visible below the bottom card */
+.map-view:has(.nv) .leaflet-bottom.leaflet-right {
+  z-index: 970;
+}
+.map-view:has(.nv) .map-statusbar {
+  display: none;
+}
+.nv-card {
+  bottom: 26px;
+}
+.nv-float {
+  bottom: 162px;
+}
+@media (max-width: 640px) {
+  .nv-card {
+    bottom: 22px;
+  }
+  .nv-float {
+    bottom: 156px;
+  }
+}
+/* phones and tablets: navigation takes the whole screen */
+@media (max-width: 900px) {
+  .page-offline-maps:has(.nv) .workspace-map {
+    position: fixed;
+    inset: 0;
+    z-index: 2500; /* above the app header and the bottom tab bar */
+    height: 100dvh;
+  }
+  .page-offline-maps:has(.nv) .workspace-map .map-view,
+  .page-offline-maps:has(.nv) .workspace-map .map-fill {
+    height: 100%;
+  }
+}
+.map-view:has(.nv) .leaflet-control-scale,
+.map-view:has(.nv) .map-statusbar {
+  display: none !important;
+}

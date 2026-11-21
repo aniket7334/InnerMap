@@ -109,6 +109,21 @@ export default function MyMapsPage() {
   const [routePicked, setRoutePicked] = useState(null);
   const [routeView, setRouteView] = useState({ route: null, endpoints: null });
   const [nav, setNav] = useState(null); // turn-by-turn navigation in progress
+  const [navDone, setNavDone] = useState(0); // metres of the route already driven
+  const navRef = useRef(null);
+  navRef.current = nav;
+  const [navFollow, setNavFollow] = useState(true); // the map follows you (paused when you move it)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !nav) return undefined;
+    const pause = () => setNavFollow(false);
+    map.on('dragstart', pause);
+    return () => map.off('dragstart', pause);
+  }, [nav]);
+  const recenter = () => {
+    setNavFollow(true);
+    if (position && mapRef.current) mapRef.current.setView([position.lat, position.lng], Math.max(mapRef.current.getZoom(), 17));
+  };
   const offline = status === 'offline';
 
   const pickSearch = (row) => {
@@ -125,6 +140,7 @@ export default function MyMapsPage() {
   };
   // a new route: show all of it beside the Directions card (above it on phones)
   const showRoute = (v) => {
+    if (navRef.current) return; // navigating: the navigation screen owns the route and the map view
     setRouteView(v);
     const g = v?.route?.geometry;
     const map = mapRef.current;
@@ -217,8 +233,11 @@ export default function MyMapsPage() {
           fitTo={fitTo}
           highlight={routeOpen ? null : place}
           route={routeView.route}
-          endpoints={routeOpen ? routeView.endpoints : null}
-          follow={Boolean(nav) && tracking}
+          routeDone={nav ? navDone : 0}
+          navigating={Boolean(nav)}
+          endpoints={routeOpen && !nav ? routeView.endpoints : nav ? { end: routeView.endpoints?.end || nav.to } : null}
+          follow={Boolean(nav) && tracking && navFollow}
+          showLocateButton={!nav}
           onReady={(m) => (mapRef.current = m)}
           onClick={onMapClick}
         >
@@ -227,9 +246,13 @@ export default function MyMapsPage() {
               userId={user.id}
               nav={nav}
               onRoute={(r) => setRouteView((v) => ({ ...v, route: r }))}
+              onProgress={setNavDone}
+              following={navFollow}
+              onRecenter={recenter}
               onStop={() => {
                 setRouteView((v) => ({ ...v, route: nav.route }));
                 setNav(null);
+                setNavDone(0);
                 setRouteOpen(true);
               }}
             />
@@ -282,6 +305,8 @@ export default function MyMapsPage() {
                 onFocusPoint={(p) => mapRef.current?.setView([p.lat, p.lng], Math.max(mapRef.current.getZoom(), 16))}
                 onStartNavigation={(n) => {
                   setNav(n);
+                  setNavFollow(true);
+                  setNavDone(0);
                   setRouteView((v) => ({ ...v, route: n.route }));
                   if (position && mapRef.current) mapRef.current.setView([position.lat, position.lng], Math.max(mapRef.current.getZoom(), 17));
                 }}

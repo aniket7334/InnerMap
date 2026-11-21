@@ -12,7 +12,7 @@ import { useConnectivity } from '../hooks/ConnectivityContext';
 import { useAuth } from '../hooks/AuthContext';
 import { useTypography } from '../hooks/TypographyContext';
 import { useRegions } from '../hooks/useRegions';
-import { formatCoord, describeGeometry, WORLD_VIEW } from './geo';
+import { formatCoord, describeGeometry, WORLD_VIEW, distanceMeters } from './geo';
 import { SATELLITE_SOURCE, TERRAIN_SOURCE, HIRES_IMAGERY_SOURCE, getProvider } from './providers';
 import { HillshadeLayer, elevationAt } from './HillshadeLayer';
 import { createLabelsOverlay, createTransitOverlay, TRANSIT_LEGEND } from './viewOverlays';
@@ -100,6 +100,22 @@ const userStaleIcon = L.divIcon({
   iconSize: [22, 22],
   iconAnchor: [11, 11],
 });
+
+// Navigation: an arrow pointing where you are heading.
+function navArrowIcon(deg, live) {
+  return L.divIcon({
+    className: `nav-arrow-icon ${live ? '' : 'stale'}`,
+    html: `<span style="transform: rotate(${Math.round(deg)}deg)"><svg viewBox="0 0 40 40" width="40" height="40"><circle cx="20" cy="20" r="17" fill="#ffffff"/><circle cx="20" cy="20" r="14" fill="${live ? '#1a73e8' : '#8b95a5'}"/><path d="M20 9l7.5 19L20 23.5 12.5 28z" fill="#ffffff"/></svg></span>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+  });
+}
+function bearingDeg(a, b) {
+  const toR = Math.PI / 180;
+  const y = Math.sin((b.lng - a.lng) * toR) * Math.cos(b.lat * toR);
+  const x = Math.cos(a.lat * toR) * Math.sin(b.lat * toR) - Math.sin(a.lat * toR) * Math.cos(b.lat * toR) * Math.cos((b.lng - a.lng) * toR);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
 
 function endpointIcon(kind) {
   return L.divIcon({
@@ -208,6 +224,8 @@ export default function MapView({
   sketch = null, // { type: 'Point'|'LineString'|'Polygon', points: [[lat, lng], ...] } while drawing
   highlight = null, // { lat, lng, label } - e.g. a search result
   route = null, // { geometry: [[lat,lng]...], mode } - a calculated route
+  routeDone = 0, // navigation: metres of the route already driven (drawn grey)
+  navigating = false, // navigation: your position is an arrow pointing where you are heading
   endpoints = null, // { start: {lat,lng}, end: {lat,lng} } - route start/destination markers
   onReady,
   onClick,
@@ -231,6 +249,7 @@ export default function MapView({
   const positionRef = useRef(position);
   positionRef.current = position;
   const locTimer = useRef(0);
+  const headingRef = useRef({ deg: 0, prev: null });
   useEffect(() => () => clearTimeout(locTimer.current), []);
   const { provider, coverage, poiFilter } = useMapProvider();
   const poiFilterRef = useRef(poiFilter);
@@ -597,8 +616,13 @@ export default function MapView({
         interactive: false,
       }).addTo(layer);
     }
+    // heading: from GPS while moving, else from your last two positions
+    const prevPos = headingRef.current.prev;
+    if (typeof position.heading === 'number' && !Number.isNaN(position.heading) && (position.speed || 0) > 0.7) headingRef.current.deg = position.heading;
+    else if (prevPos && distanceMeters(prevPos.lat, prevPos.lng, position.lat, position.lng) > 3) headingRef.current.deg = bearingDeg(prevPos, position);
+    headingRef.current.prev = { lat: position.lat, lng: position.lng };
     L.marker(latlng, {
-      icon: live && !approximate ? userIcon : userStaleIcon,
+      icon: navigating ? navArrowIcon(headingRef.current.deg, live && !approximate) : live && !approximate ? userIcon : userStaleIcon,
       interactive: false,
       zIndexOffset: 1000,
       keyboard: false,
@@ -622,7 +646,7 @@ export default function MapView({
     } else if (follow && live) {
       map.panTo(latlng, { animate: true });
     }
-  }, [position, showUser, follow, fixStatus, approximate]);
+  }, [position, showUser, follow, fixStatus, approximate, navigating]);
 
   // Route line (white casing + coloured line; dashed when calculated offline) and A/B markers.
   useEffect(() => {
@@ -630,10 +654,30 @@ export default function MapView({
     if (!layer) return;
     layer.clearLayers();
     if (route?.geometry?.length) {
-      L.polyline(route.geometry, { color: '#ffffff', weight: 9, opacity: 0.95, interactive: false }).addTo(layer);
-      L.polyline(route.geometry, {
-        color: route.mode === 'offline' ? '#0b6e64' : '#2563eb',
-        weight: 5,
+      // while navigating: the part already driven in grey, the rest in blue
+      let passed = null;
+      let ahead = route.geometry;
+      if (navigating && routeDone > 0) {
+        const g = route.geometry;
+        let acc = 0;
+        for (let i = 1; i < g.length; i += 1) {
+          const seg = distanceMeters(g[i - 1][0], g[i - 1][1], g[i][0], g[i][1]);
+          if (acc + seg >= routeDone) {
+            const t = seg ? (routeDone - acc) / seg : 0;
+            const cut = [g[i - 1][0] + (g[i][0] - g[i - 1][0]) * t, g[i - 1][1] + (g[i][1] - g[i - 1][1]) * t];
+            passed = [...g.slice(0, i), cut];
+            ahead = [cut, ...g.slice(i)];
+            break;
+          }
+          acc += seg;
+        }
+      }
+      const w = navigating ? 8 : 5;
+      L.polyline(route.geometry, { color: '#ffffff', weight: w + 4, opacity: 0.95, interactive: false }).addTo(layer);
+      if (passed) L.polyline(passed, { color: '#9aa5b1', weight: w, opacity: 0.95, interactive: false }).addTo(layer);
+      L.polyline(ahead, {
+        color: navigating ? '#1a73e8' : route.mode === 'offline' ? '#0b6e64' : '#2563eb',
+        weight: w,
         opacity: 0.95,
         interactive: false,
       }).addTo(layer);
@@ -644,7 +688,7 @@ export default function MapView({
     if (endpoints?.end) {
       L.marker([endpoints.end.lat, endpoints.end.lng], { icon: endpointIcon('end'), title: 'Destination', keyboard: false }).addTo(layer);
     }
-  }, [route, endpoints]);
+  }, [route, endpoints, routeDone, navigating]);
 
   // Saved places.
   useEffect(() => {

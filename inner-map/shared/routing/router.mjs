@@ -232,7 +232,7 @@ function instructions(g, legs, startPt, endPt) {
       const t = turnText(outB - inB);
       text = t === 'Continue' ? `Continue onto ${label}` : `${t} onto ${label}`;
     }
-    steps.push({ text, distance: Math.round(dist), lat: first[0][0], lng: first[0][1] });
+    steps.push({ text, road: label, distance: Math.round(dist), lat: first[0][0], lng: first[0][1] });
     i = j;
   }
   steps.push({ text: 'Arrive at your destination', distance: 0, lat: endPt[0], lng: endPt[1] });

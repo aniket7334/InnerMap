@@ -215,7 +215,6 @@ export default function MyMapsPage() {
           className="map-fill"
           regions={regions}
           fitTo={fitTo}
-          showLocateButton={false}
           highlight={routeOpen ? null : place}
           route={routeView.route}
           endpoints={routeOpen ? routeView.endpoints : null}

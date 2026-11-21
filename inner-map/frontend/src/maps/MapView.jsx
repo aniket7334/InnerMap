@@ -224,7 +224,14 @@ export default function MapView({
   const layersRef = useRef({});
   const flyOnFix = useRef(false);
   const onClickRef = useRef(onClick);
-  const { position, tracking, startTracking, fixStatus } = useLocation();
+  const { position, tracking, startTracking, fixStatus, errorType, approximate } = useLocation();
+  // "my location" without internet: GPS needs no data connection; while there is no fresh fix,
+  // the last known position is shown (and said so) instead of nothing
+  const [locNote, setLocNote] = useState(null);
+  const positionRef = useRef(position);
+  positionRef.current = position;
+  const locTimer = useRef(0);
+  useEffect(() => () => clearTimeout(locTimer.current), []);
   const { provider, coverage, poiFilter } = useMapProvider();
   const poiFilterRef = useRef(poiFilter);
   poiFilterRef.current = poiFilter;
@@ -579,31 +586,43 @@ export default function MapView({
     if (position.accuracy) {
       // The circle is the accuracy radius reported by the device: the true position is
       // probably inside it. A dashed grey circle means it is an old (last known) fix.
+      // amber: a rough estimate (Wi-Fi / network), not a GPS fix
       L.circle(latlng, {
         radius: position.accuracy,
-        color: live ? '#2563eb' : '#6b717b',
+        color: !live ? '#6b717b' : approximate ? '#d97706' : '#2563eb',
         weight: 1,
         dashArray: live ? null : '4 4',
-        fillColor: live ? '#3b82f6' : '#9ca3af',
+        fillColor: !live ? '#9ca3af' : approximate ? '#f59e0b' : '#3b82f6',
         fillOpacity: live ? 0.12 : 0.08,
         interactive: false,
       }).addTo(layer);
     }
     L.marker(latlng, {
-      icon: live ? userIcon : userStaleIcon,
+      icon: live && !approximate ? userIcon : userStaleIcon,
       interactive: false,
       zIndexOffset: 1000,
       keyboard: false,
-      title: live ? 'Your location' : 'Last known location',
+      title: !live ? 'Last known location' : approximate ? 'Approximate location (not GPS)' : 'Your location',
     }).addTo(layer);
 
-    if (flyOnFix.current && !position.restored) {
+    if (flyOnFix.current && !position.restored && approximate) {
+      // a rough estimate: show the whole circle, say so, and keep waiting for GPS
+      clearTimeout(locTimer.current);
+      map.flyToBounds(L.latLng(latlng).toBounds(position.accuracy * 2.2), { maxZoom: 15 });
+      const r = position.accuracy >= 1000 ? `${(position.accuracy / 1000).toFixed(1)} km` : `${Math.round(position.accuracy)} m`;
+      setLocNote({
+        tone: 'warn',
+        text: `Approximate location (±${r}) - not a GPS fix. On a phone, turn on GPS (Location, high accuracy) and step outdoors. Computers without GPS cannot find an exact position offline. Waiting for GPS…`,
+      });
+    } else if (flyOnFix.current && !position.restored) {
       flyOnFix.current = false;
+      clearTimeout(locTimer.current);
+      setLocNote(null);
       map.flyTo(latlng, Math.max(map.getZoom(), 16));
     } else if (follow && live) {
       map.panTo(latlng, { animate: true });
     }
-  }, [position, showUser, follow, fixStatus]);
+  }, [position, showUser, follow, fixStatus, approximate]);
 
   // Route line (white casing + coloured line; dashed when calculated offline) and A/B markers.
   useEffect(() => {
@@ -756,13 +775,40 @@ export default function MapView({
 
   const locate = () => {
     const map = mapRef.current;
-    if (position && !position.restored && map) {
+    if (position && !position.restored && fixStatus === 'live' && map) {
+      setLocNote(null);
       map.flyTo([position.lat, position.lng], Math.max(map.getZoom(), 16));
       return;
     }
     flyOnFix.current = true;
     if (!tracking) startTracking();
+    setLocNote({ tone: 'info', text: 'Finding your location with GPS… (works without internet)' });
+    clearTimeout(locTimer.current);
+    // no fresh fix after a while: show the last known position, and keep trying
+    locTimer.current = setTimeout(() => {
+      if (!flyOnFix.current) return;
+      const p = positionRef.current;
+      const m = mapRef.current;
+      if (p && m) {
+        m.flyTo([p.lat, p.lng], Math.max(m.getZoom(), 15));
+        const mins = p.timestamp ? Math.round((Date.now() - p.timestamp) / 60000) : null;
+        const when = mins == null ? '' : mins < 1 ? ' (less than a minute ago)' : mins < 60 ? ` (${mins} min ago)` : mins < 1440 ? ` (${Math.round(mins / 60)} h ago)` : ` (${new Date(p.timestamp).toLocaleDateString()})`;
+        setLocNote({ tone: 'warn', text: `Showing your last known location${when}. No live GPS fix yet - still trying.` });
+      } else {
+        setLocNote({
+          tone: 'warn',
+          text: 'No GPS fix yet. Turn on location (GPS) on your phone - it works without internet. Computers without a GPS receiver need internet to find their location.',
+        });
+      }
+    }, 9000);
   };
+  // permission blocked: say so instead of waiting
+  useEffect(() => {
+    if (!locNote || errorType !== 'denied') return;
+    clearTimeout(locTimer.current);
+    flyOnFix.current = false;
+    setLocNote({ tone: 'warn', text: 'Location permission is blocked for this site. Allow it in the browser settings to see where you are.' });
+  }, [errorType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className={`map-view ${className} ${sketch?.stage === 'drawing' || measure ? 'is-drawing' : ''}`}>
@@ -786,6 +832,15 @@ export default function MapView({
             <circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" strokeWidth="2" />
           </svg>
         </button>
+      )}
+      {locNote && (
+        <div className={`map-loc-note tone-${locNote.tone}`} role="status">
+          <span className="map-loc-dot" aria-hidden="true" />
+          <span>{locNote.text}</span>
+          <button type="button" onClick={() => setLocNote(null)} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
       )}
       {showCoordinates && center && (
         <div className="map-coords map-statusbar" aria-live="off">

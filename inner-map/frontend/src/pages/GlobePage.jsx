@@ -38,6 +38,8 @@ import {
   VerticalOrigin,
   HeightReference,
   buildModuleUrl,
+  BoundingSphere,
+  HeadingPitchRange,
 } from 'cesium';
 import 'cesium/Build/Cesium/Widgets/widgets.css';
 import '../styles/earth.css';
@@ -58,13 +60,14 @@ import { WorldMapImageryProvider, loadWorldCountries } from '../globe/WorldMapIm
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
 import { createLocalLabels } from '../globe/localLabels';
 import { nearestCity } from '../globe/exploreSearch';
+import { distanceMeters } from '../maps/geo';
 import { createPhotoMarkers, fetchPlacePhotos, loadWorldPhotos, mergePhotos, searchKey, viewRadiusKm, worldPhotosInView, PHOTOS_MAX_HEIGHT } from '../globe/placePhotos';
 import PhotoGallery, { PhotoStrip } from '../components/EarthPhotos';
 import EarthSettings, { detailPreset } from '../components/EarthSettings';
 import { labelFont } from '../typography/typographyConfig';
 import { VectorImageryProvider } from '../globe/VectorImageryProvider';
 import { SatelliteImageryProvider } from '../globe/SatelliteImageryProvider';
-import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities } from '../globe/globeEntities';
+import { fillFeatures, fillPlaces, fillRegions, createUserEntities, updateUserEntities, setUserTrail } from '../globe/globeEntities';
 import { getGlobeOfflineStatus, makeGlobeAvailableOffline, removeGlobeOffline } from '../globe/globeOffline';
 import SearchBox from '../components/SearchBox';
 import EarthExplore from '../components/EarthExplore';
@@ -217,7 +220,7 @@ export default function GlobePage() {
   const uid = user?.id;
   const navigate = useNavigate();
   const { status } = useConnectivity();
-  const { position, tracking, startTracking, stopTracking, locateOnce } = useLocation();
+  const { position, tracking, startTracking, stopTracking, locateOnce, fixStatus, quality, approximate } = useLocation();
   const { coverage } = useMapProvider();
   const { settings: typography, mapLabelKey } = useTypography();
   const typographyRef = useRef(typography);
@@ -642,7 +645,9 @@ export default function GlobePage() {
   const effectiveBase = !online ? 'worldMap' : base === 'local' && !serverReachable ? 'naturalEarth' : base;
   // while online, load the world outlines once so they are cached for offline use
   useEffect(() => {
-    if (ready && online) loadWorldCountries().catch(() => {});
+    if (!ready || !online) return undefined;
+    loadWorldCountries('50m').catch(() => {});
+    return undefined;
   }, [ready, online]);
 
   useEffect(() => {
@@ -1012,13 +1017,103 @@ export default function GlobePage() {
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!ready || !viewer) return;
-    updateUserEntities(userEntitiesRef.current, position);
-    if (position && follow) {
-      const h = viewer.camera.positionCartographic.height;
-      viewer.camera.flyTo({ destination: Cartesian3.fromDegrees(position.lng, position.lat, Math.min(h, 3000)), duration: 1 });
+    const live = fixStatus === 'live';
+    updateUserEntities(userEntitiesRef.current, position, live, approximate);
+    if (position && follow && live) {
+      // keep you in the middle, at the zoom and tilt you chose (far out: come down to the street).
+      // A rough estimate is not zoomed into: the whole circle of where you may be stays in view.
+      const cam = viewer.camera;
+      const h = cam.positionCartographic.height;
+      const pitch = cam.pitch;
+      // GPS just locked on after a rough estimate: come down to street level
+      const sharpened = wasApproxRef.current && !approximate;
+      wasApproxRef.current = approximate;
+      const range = approximate
+        ? Math.min(400000, Math.max(3000, position.accuracy * 5))
+        : h > 25000 || sharpened
+          ? 1500
+          : Math.max(250, h / Math.max(0.25, Math.sin(-pitch)));
+      cam.flyToBoundingSphere(new BoundingSphere(Cartesian3.fromDegrees(position.lng, position.lat), 0), {
+        offset: new HeadingPitchRange(cam.heading, h > 25000 || approximate || sharpened ? -Math.PI / 2 : pitch, range),
+        duration: h > 25000 || sharpened ? 2 : 0.9,
+      });
     }
     viewer.scene.requestRender();
-  }, [ready, position, follow]);
+  }, [ready, position, follow, fixStatus, approximate]);
+
+  const wasApproxRef = useRef(false);
+  // ------------------------------------------------------------ live GPS tracking (works offline)
+  // A trail of where you have been this session and the distance, from fresh GPS fixes only.
+  const [trip, setTrip] = useState({ points: [], km: 0 });
+  useEffect(() => {
+    if (!tracking || !position || position.restored || fixStatus !== 'live') return;
+    if (position.accuracy && position.accuracy > 80) return; // a poor fix would draw a zig-zag
+    setTrip((t) => {
+      const last = t.points[t.points.length - 1];
+      if (last) {
+        const d = distanceMeters(last.lat, last.lng, position.lat, position.lng) / 1000;
+        if (d < 0.004) return t; // less than ~4 m: not a move
+        return { points: [...t.points, { lat: position.lat, lng: position.lng }].slice(-5000), km: t.km + d };
+      }
+      return { points: [{ lat: position.lat, lng: position.lng }], km: 0 };
+    });
+  }, [tracking, position, fixStatus]);
+  useEffect(() => {
+    if (!ready || !userEntitiesRef.current) return;
+    setUserTrail(userEntitiesRef.current, tracking ? trip.points : []);
+    viewerRef.current?.scene.requestRender();
+  }, [ready, trip, tracking]);
+  // moving the globe yourself pauses following (the location button brings you back)
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  useEffect(() => {
+    const canvas = viewerRef.current?.canvas;
+    if (!ready || !canvas) return undefined;
+    const pause = () => followRef.current && setFollow(false);
+    canvas.addEventListener('pointerdown', pause);
+    canvas.addEventListener('wheel', pause, { passive: true });
+    return () => {
+      canvas.removeEventListener('pointerdown', pause);
+      canvas.removeEventListener('wheel', pause);
+    };
+  }, [ready]);
+  const trackTimer = useRef(0);
+  useEffect(() => () => clearTimeout(trackTimer.current), []);
+  /** Location button: start tracking and follow you; while tracking, bring you back to the middle. */
+  const trackMe = () => {
+    if (!tracking) {
+      setTrip({ points: [], km: 0 });
+      startTracking();
+    }
+    setFollow(true);
+    if (position && fixStatus === 'live') {
+      const h = viewerRef.current?.camera.positionCartographic.height || 1e7;
+      if (approximate) flyToPoint(position.lat, position.lng, Math.min(400000, Math.max(3000, position.accuracy * 5)));
+      else if (h > 25000) flyToPoint(position.lat, position.lng, 1500);
+      return;
+    }
+    // no fresh fix yet: after a while show the last known position (GPS works without internet)
+    clearTimeout(trackTimer.current);
+    trackTimer.current = setTimeout(() => {
+      if (positionRef.current && fixStatusRef.current !== 'live') {
+        const p = positionRef.current;
+        flyToPoint(p.lat, p.lng, 1500);
+        setToast('No live GPS fix yet - showing your last known location. Still trying.');
+      } else if (!positionRef.current) {
+        setToast('No GPS fix yet. Turn on location (GPS) on your phone - it works without internet.');
+      }
+    }, 9000);
+  };
+  const stopTrip = () => {
+    stopTracking();
+    setFollow(false);
+    setTrip({ points: [], km: 0 });
+    clearTimeout(trackTimer.current);
+  };
+  const positionRef = useRef(position);
+  positionRef.current = position;
+  const fixStatusRef = useRef(fixStatus);
+  fixStatusRef.current = fixStatus;
 
   // ------------------------------------------------------------ camera helpers
   const flyToBounds = useCallback((b, duration = 1.6) => {
@@ -1077,8 +1172,20 @@ export default function GlobePage() {
     try {
       const p = position && !position.restored ? position : await locateOnce();
       flyToPoint(p.lat, p.lng, 1500);
-    } catch {
-      setToast('Your location is not available. Allow location access in the browser, then try again.');
+    } catch (err) {
+      // no fresh fix (GPS works without internet; computers without GPS need internet):
+      // go to the last known position, and say so
+      if (err?.code !== 1 && position) {
+        flyToPoint(position.lat, position.lng, 1500);
+        const mins = position.timestamp ? Math.round((Date.now() - position.timestamp) / 60000) : null;
+        setToast(`Showing your last known location${mins == null ? '' : mins < 60 ? ` (${Math.max(1, mins)} min ago)` : ` (${Math.round(mins / 60)} h ago)`}. No live GPS fix right now.`);
+      } else {
+        setToast(
+          err?.code === 1
+            ? 'Location permission is blocked. Allow location access in the browser, then try again.'
+            : 'No GPS fix. Turn on location (GPS) on your phone - it works without internet. Computers without GPS need internet to find their location.'
+        );
+      }
     }
   };
   const wholeEarth = () => {
@@ -1667,7 +1774,14 @@ export default function GlobePage() {
 
       {/* bottom-right: camera controls */}
       <div className="earth-controls" role="toolbar" aria-label="Camera">
-        <button type="button" className="earth-round" onClick={locate} title="Fly to my location" aria-label="Fly to my location">
+        <button
+          type="button"
+          className={`earth-round earth-track ${tracking ? 'is-tracking' : ''} ${tracking && follow ? 'is-following' : ''}`}
+          onClick={trackMe}
+          title={tracking ? (follow ? 'Following your location' : 'Back to my location') : 'Track my location (GPS - works without internet)'}
+          aria-label={tracking ? 'Back to my location' : 'Track my location'}
+          aria-pressed={tracking && follow}
+        >
           <Icon name="crosshair" size={20} />
         </button>
         <button type="button" className="earth-round" onClick={resetView} title="Reset view: north up, looking straight down" aria-label="Reset view">
@@ -1696,6 +1810,59 @@ export default function GlobePage() {
           </button>
         </div>
       </div>
+
+      {/* live GPS tracking */}
+      {tracking && (
+        <div className={`earth-trackbar ${fixStatus !== 'live' ? 'waiting' : approximate ? 'approx' : 'live'}`} role="status" aria-live="polite">
+          <span className="earth-trackbar-dot" aria-hidden="true" />
+          <span className="earth-trackbar-main">
+            <strong>
+              {fixStatus !== 'live'
+                ? position
+                  ? 'Waiting for GPS'
+                  : 'Finding you…'
+                : approximate
+                  ? `Approximate location · ±${position.accuracy >= 1000 ? `${(position.accuracy / 1000).toFixed(1)} km` : `${Math.round(position.accuracy)} m`}`
+                  : 'Live GPS'}
+            </strong>
+            <small>
+              {fixStatus === 'live' && approximate
+                ? 'Not a GPS fix - an estimate from Wi-Fi or the mobile network. Turn on GPS (phone: Location, high accuracy) and step outdoors; waiting for GPS…'
+                : [
+                position?.accuracy && fixStatus === 'live' ? `±${Math.round(position.accuracy)} m${quality === 'poor' ? ' (weak)' : ''}` : null,
+                fixStatus === 'live' && position?.speed != null && position.speed >= 0.5 ? `${Math.round(position.speed * 3.6)} km/h` : null,
+                trip.km >= 0.01 ? `${trip.km < 1 ? `${Math.round(trip.km * 1000)} m` : `${trip.km.toFixed(2)} km`} travelled` : null,
+                fixStatus !== 'live' && position ? 'showing last known' : null,
+                !online ? 'no internet needed' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ') || 'GPS on'}
+            </small>
+          </span>
+          {!follow && (
+            <button type="button" className="earth-trackbar-btn" onClick={trackMe}>
+              <Icon name="crosshair" size={14} /> Follow
+            </button>
+          )}
+          <button type="button" className="earth-trackbar-btn stop" onClick={stopTrip}>
+            Stop
+          </button>
+        </div>
+      )}
+
+      {/* offline and zoomed in where nothing is downloaded: the map is only a world outline */}
+      {!online &&
+        camera.lat != null &&
+        camera.height < 60000 &&
+        !vectorRegions.some((r) => camera.lat >= r.bounds.south && camera.lat <= r.bounds.north && camera.lng >= r.bounds.west && camera.lng <= r.bounds.east) && (
+          <div className="earth-rough-note" role="note">
+            <Icon name="layers" size={15} />
+            <span>
+              <strong>No street map stored for this place.</strong> Offline, only a rough outline of land and sea is shown here, so
+              positions near the coast can look off. Download this area while online to see its streets.
+            </span>
+          </div>
+        )}
 
       {/* bottom status: camera position */}
       <div className="earth-status" aria-live="off">

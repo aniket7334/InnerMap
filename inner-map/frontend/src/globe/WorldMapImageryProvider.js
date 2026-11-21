@@ -1,6 +1,8 @@
 // A street-map style world for the 3D Earth when there is no internet (offline mode or no
 // connection): land, sea, coastlines and country borders drawn on the device from Natural
 // Earth's 1:50m countries (public domain; world-atlas 2.0.2, ISC, public/data/world-countries-50m.json).
+// Only an outline: at street level its coasts can be kilometres off (e.g. South Mumbai is drawn as
+// sea) - the Earth says so there, and a downloaded area's street map covers it.
 // The colours are the light map style of the downloaded street maps, so zooming into a
 // downloaded area blends into its full street map. Country, state and city names come from the
 // world-names layer on top.
@@ -9,7 +11,7 @@ import { feature, mesh } from 'topojson-client';
 import { namedFlavor } from '@protomaps/basemaps';
 
 const TILE = 256;
-const URL = '/data/world-countries-50m.json';
+const URLS = { '50m': '/data/world-countries-50m.json' };
 const flavor = namedFlavor('light');
 const COLORS = {
   water: flavor.water, // #80deea
@@ -18,11 +20,11 @@ const COLORS = {
   border: '#9e9aa8',
 };
 
-let dataPromise = null;
-/** Loads (once) and prepares the outlines. Fetched while online so it is cached for offline use. */
-export function loadWorldCountries() {
-  if (!dataPromise) {
-    dataPromise = fetch(URL)
+const dataPromises = {};
+/** Loads (once) and prepares the outlines ('50m'). Fetched while online so it is cached for offline use. */
+export function loadWorldCountries(res = '50m') {
+  if (!dataPromises[res]) {
+    dataPromises[res] = fetch(URLS[res])
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((topo) => {
         const land = feature(topo, topo.objects.land);
@@ -37,11 +39,11 @@ export function loadWorldCountries() {
         return { polys, lines };
       })
       .catch((err) => {
-        dataPromise = null; // try again next time
+        dataPromises[res] = null; // try again next time
         throw err;
       });
   }
-  return dataPromise;
+  return dataPromises[res];
 }
 
 function bboxOf(pts) {
@@ -70,8 +72,8 @@ export class WorldMapImageryProvider {
     this.errorEvent = new CesiumEvent();
     this.credit = new Credit('Natural Earth', false);
     this.proxy = undefined;
-    this.hasAlphaChannel = false;
-    loadWorldCountries().catch(() => {});
+    this.hasAlphaChannel = true; // transparent when no outlines are stored yet (the bundled imagery shows)
+    loadWorldCountries('50m').catch(() => {});
   }
 
   getTileCredits() {
@@ -87,14 +89,16 @@ export class WorldMapImageryProvider {
     canvas.width = TILE;
     canvas.height = TILE;
     const g = canvas.getContext('2d');
-    g.fillStyle = COLORS.water;
-    g.fillRect(0, 0, TILE, TILE);
     let data;
     try {
-      data = await loadWorldCountries();
+      data = await loadWorldCountries('50m');
     } catch {
-      return canvas; // not cached yet (never opened online): plain sea colour
+      // never opened online since this was added: leave it see-through (the bundled Earth
+      // imagery shows) rather than painting everything as sea
+      return canvas;
     }
+    g.fillStyle = COLORS.water;
+    g.fillRect(0, 0, TILE, TILE);
     const r = this.tilingScheme.tileXYToRectangle(x, y, level);
     const west = CesiumMath.toDegrees(r.west);
     const east = CesiumMath.toDegrees(r.east);

@@ -29,6 +29,12 @@ export function fixQuality(accuracy) {
   return 'poor';
 }
 
+/**
+ * Wider than this (metres) is not a GPS fix but a rough estimate from Wi-Fi / mobile networks
+ * (computers without GPS, or a phone before GPS has locked on). It is shown as "approximate".
+ */
+export const APPROXIMATE_M = 150;
+
 /** Machine-readable reason, so the UI can offer the right action. */
 function errorKind(err) {
   if (!window.isSecureContext) return 'insecure';
@@ -99,6 +105,8 @@ export function LocationProvider({ children }) {
   // The last known fix is kept on this device only, so the map can show where you were last
   // located even before a new fix arrives (clearly labelled as "last known").
   const [position, setPosition] = useState(() => (user ? readLastFix() : null));
+  const positionRef = useRef(position);
+  positionRef.current = position;
   const [error, setError] = useState(null);
   const [errorType, setErrorType] = useState(supported ? null : 'unsupported'); // denied | unavailable | timeout | insecure | unsupported
   const [locating, setLocating] = useState(false); // waiting for a fix
@@ -173,6 +181,19 @@ export function LocationProvider({ children }) {
   const onPosition = useCallback(
     (pos) => {
       const p = toPosition(pos);
+      // A rough network estimate right after a good GPS fix would make the dot jump (often
+      // into the sea at the coast): keep the GPS fix until GPS reports again or a minute passes.
+      const prev = positionRef.current;
+      if (
+        prev &&
+        !prev.restored &&
+        prev.accuracy &&
+        prev.accuracy <= 100 &&
+        p.accuracy > Math.max(APPROXIMATE_M, prev.accuracy * 3) &&
+        p.timestamp - prev.timestamp < 60000
+      ) {
+        return;
+      }
       setPosition(p);
       setNow(Date.now());
       setError(null);
@@ -180,7 +201,10 @@ export function LocationProvider({ children }) {
       setLocating(false);
       recordHistory(p);
       try {
-        localStorage.setItem(LAST_FIX_KEY, JSON.stringify({ lat: p.lat, lng: p.lng, accuracy: p.accuracy, timestamp: p.timestamp }));
+        // do not replace a good saved fix (from the last 30 min) with a rough estimate
+        const saved = readLastFix();
+        const keepSaved = saved && p.accuracy > APPROXIMATE_M && saved.accuracy <= 100 && p.timestamp - saved.timestamp < 30 * 60000;
+        if (!keepSaved) localStorage.setItem(LAST_FIX_KEY, JSON.stringify({ lat: p.lat, lng: p.lng, accuracy: p.accuracy, timestamp: p.timestamp }));
       } catch {
         /* storage unavailable */
       }
@@ -366,6 +390,7 @@ export function LocationProvider({ children }) {
   const ageMs = position ? Math.max(0, now - position.timestamp) : null;
   const fixStatus = !position ? 'none' : tracking && !position.restored && ageMs < STALE_AFTER_MS ? 'live' : 'last-known';
   const quality = position ? fixQuality(position.accuracy) : 'unknown';
+  const approximate = Boolean(position && typeof position.accuracy === 'number' && position.accuracy > APPROXIMATE_M);
 
   return (
     <LocationContext.Provider
@@ -384,6 +409,7 @@ export function LocationProvider({ children }) {
         locateOnce,
         fixStatus,
         quality,
+        approximate,
         ageMs,
       }}
     >

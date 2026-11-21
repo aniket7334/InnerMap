@@ -163,6 +163,17 @@ export function fillRegions(ds, regions) {
 
 /** Blue GPS dot + accuracy circle; returns the entities so they can be moved. */
 export function createUserEntities(ds) {
+  // where you have been while tracking (this session only, never stored)
+  const trail = ds.entities.add({
+    show: false,
+    polyline: {
+      positions: [],
+      width: 5,
+      material: color('#2563eb', 0.85),
+      depthFailMaterial: color('#2563eb', 0.85),
+      arcType: 1, // geodesic
+    },
+  });
   const accuracy = ds.entities.add({
     show: false,
     ellipse: {
@@ -184,10 +195,21 @@ export function createUserEntities(ds) {
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
     },
   });
-  return { dot, accuracy };
+  return { dot, accuracy, trail };
 }
 
-export function updateUserEntities({ dot, accuracy }, position) {
+/** The tracking trail: [{ lat, lng }] (raised a little so the map does not hide it). */
+export function setUserTrail({ trail }, points) {
+  if (!trail) return;
+  if (!points || points.length < 2) {
+    trail.show = false;
+    return;
+  }
+  trail.polyline.positions = points.map((p) => Cartesian3.fromDegrees(p.lng, p.lat, 3));
+  trail.show = true;
+}
+
+export function updateUserEntities({ dot, accuracy }, position, live = true, approximate = false) {
   if (!position) {
     dot.show = false;
     accuracy.show = false;
@@ -200,6 +222,10 @@ export function updateUserEntities({ dot, accuracy }, position) {
     position.accuracy ? `Accuracy ± ${Math.round(position.accuracy)} m` : null,
   ]);
   dot.show = true;
+  // a fresh GPS fix is blue; an old (last known) one grey
+  // GPS fix: blue. Rough estimate (Wi-Fi / network, not GPS): amber with its wide circle. Old: grey.
+  dot.point.color = !live ? color('#8b95a5') : approximate ? color('#f59e0b') : color('#2563eb');
+  accuracy.ellipse.material = !live ? color('#8b95a5', 0.14) : approximate ? color('#f59e0b', 0.16) : color('#3b82f6', 0.18);
   if (position.accuracy) {
     const r = Math.max(5, position.accuracy);
     accuracy.position = where;

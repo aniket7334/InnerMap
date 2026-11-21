@@ -4261,3 +4261,58 @@ html.no-scroll body {
     overscroll-behavior: contain;
   }
 }
+
+/* "my location" notice on the 2D maps (finding / last known / no fix) */
+.map-loc-note {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(460px, calc(100% - 24px));
+  padding: 10px 10px 10px 14px;
+  border-radius: 14px;
+  background: #1f2329;
+  color: #f2f4f6;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 12px 28px -12px rgba(2, 6, 23, 0.6);
+  transform: translateX(-50%);
+}
+.map-loc-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #4285f4;
+  box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.3);
+  animation: map-loc-pulse 1.6s ease-in-out infinite;
+}
+.map-loc-note.tone-warn .map-loc-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.28);
+}
+@keyframes map-loc-pulse {
+  50% {
+    box-shadow: 0 0 0 8px rgba(66, 133, 244, 0.08);
+  }
+}
+.map-loc-note button {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-loc-dot {
+    animation: none;
+  }
+}

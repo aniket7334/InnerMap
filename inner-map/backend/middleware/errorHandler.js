@@ -19,10 +19,14 @@ function errorHandler(err, _req, res, _next) {
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ message: 'Request body is too large' });
   }
-  if (['ECONNREFUSED', 'ER_BAD_DB_ERROR', 'ER_ACCESS_DENIED_ERROR', 'ER_NO_SUCH_TABLE'].includes(err.code)) {
+  if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ER_BAD_DB_ERROR', 'ER_ACCESS_DENIED_ERROR', 'ER_NO_SUCH_TABLE', 'HANDSHAKE_SSL_ERROR'].includes(err.code)) {
     console.error('[db]', err.code, err.message);
     return res.status(503).json({
-      message: 'Database is unavailable. Start MySQL in XAMPP and import database/inner_map_db.sql.',
+      // a hosted server cannot "start XAMPP": say what to check there (details stay in the server log)
+      message:
+        process.env.NODE_ENV === 'production' || process.env.DATABASE_URL
+          ? 'The server cannot reach its database right now. Please try again later.'
+          : 'Database is unavailable. Start MySQL in XAMPP and import database/inner_map_db.sql.',
     });
   }
   if (err.code === 'ER_DUP_ENTRY') {

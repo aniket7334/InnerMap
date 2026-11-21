@@ -1,0 +1,49 @@
+{
+  "areas": [
+    {
+      "id": "pune-56f717",
+      "name": "Pune",
+      "bounds": {
+        "west": 73.75,
+        "south": 18.45,
+        "east": 73.98,
+        "north": 18.62
+      },
+      "build": "20261118.pmtiles",
+      "tiles": 529,
+      "bytes": 11356007,
+      "createdAt": "2026-11-19T06:59:50.811Z",
+      "createdBy": 26
+    },
+    {
+      "id": "map-area-bc573b",
+      "name": "Map area",
+      "bounds": {
+        "west": 72.47475,
+        "south": 18.81142,
+        "east": 73.37563,
+        "north": 19.38824
+      },
+      "build": "20261118.pmtiles",
+      "tiles": 6411,
+      "bytes": 25898503,
+      "createdAt": "2026-11-19T07:07:17.059Z",
+      "createdBy": 1
+    },
+    {
+      "id": "pune-508d98",
+      "name": "pune",
+      "bounds": {
+        "west": 73.65973,
+        "south": 18.48791,
+        "east": 73.88494,
+        "north": 18.63226
+      },
+      "build": "20261120.pmtiles",
+      "tiles": 463,
+      "bytes": 8156702,
+      "createdAt": "2026-11-21T04:38:25.476Z",
+      "createdBy": 1
+    }
+  ]
+}

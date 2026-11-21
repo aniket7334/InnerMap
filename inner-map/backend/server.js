@@ -68,6 +68,8 @@ app.use(errorHandler);
 
 app.listen(config.port, async () => {
   console.log(`[server] Inner Map API listening on http://localhost:${config.port}`);
+  // road data for offline directions: build it for map areas that do not have it yet
+  setTimeout(() => require('./services/roadDataService').backfill(), 3000);
   try {
     await testConnection();
     console.log('[db] Connected to MySQL database', config.db.database);

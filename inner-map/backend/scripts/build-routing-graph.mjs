@@ -1,6 +1,7 @@
 // Builds the offline road-routing graph for an area from OpenStreetMap data.
 //
 //   node scripts/build-routing-graph.mjs --name=mumbai --bbox=72.75,18.85,73.10,19.35
+//   (--out=<file> writes somewhere else, e.g. data/areas/<area id>.routing.json.gz for a map area)
 //
 // 1. Downloads routable ways (highway=*) inside the box from an Overpass API server, in a few
 //    smaller cells (kinder to the shared server), with retries. Raw responses are cached in
@@ -103,7 +104,8 @@ async function main() {
     name,
   });
   const json = JSON.stringify(graph);
-  const out = join(dataDir, `${name}.routing.json.gz`);
+  const out = args.out ? String(args.out) : join(dataDir, `${name}.routing.json.gz`);
+  mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, gzipSync(json, { level: 9 }));
   console.log(
     `[routing] ${graph.nodeId.length} junctions, ${graph.edgeA.length} road segments, ` +

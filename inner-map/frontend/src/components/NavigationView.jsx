@@ -32,9 +32,10 @@ export function maneuverOf(text = '') {
 /** The street an instruction leads onto ("…onto Colaba Causeway" -> "Colaba Causeway"). */
 export function roadOf(step) {
   if (!step) return '';
-  if (step.road) return step.road;
   const m = /\b(?:onto|on|into|towards)\s+(.+)$/i.exec(step.text || '');
-  return m ? m[1].trim() : '';
+  const name = step.road || (m ? m[1].trim() : '');
+  // unnamed roads come as "the road", "a footpath"...: no street name to show
+  return /^(the|a|an)\s/i.test(name) ? '' : name;
 }
 
 /** A big, clear turn arrow (white on the blue card). */

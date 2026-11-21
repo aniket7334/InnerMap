@@ -1,6 +1,8 @@
 // GET /api/routing/info                 online provider + offline routing data available here
 // GET /api/routing/route?profile=car&from=lat,lng&to=lat,lng   online route (via the provider)
 // GET /api/routing/graph?south=&west=&north=&east=             road graph for offline routing (gzip JSON)
+// GET /api/routing/areas                road data of each map area (ready / building / missing)
+// POST /api/routing/areas/:id/build     build the road data of a map area now
 const router = require('express').Router();
 const rateLimit = require('express-rate-limit');
 const routing = require('../services/routingService');
@@ -26,6 +28,17 @@ const routeLimiter = rateLimit({
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   message: { message: 'Too many route requests. Wait a minute and try again.' },
+});
+
+router.get('/areas', (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ areas: require('../services/roadDataService').list() });
+});
+
+router.post('/areas/:id/build', (req, res) => {
+  const out = require('../services/roadDataService').requestBuild(String(req.params.id), { manual: true });
+  if (out.error) return res.status(out.status || 400).json({ message: out.error });
+  return res.status(202).json(out);
 });
 
 router.get('/info', (_req, res) => {

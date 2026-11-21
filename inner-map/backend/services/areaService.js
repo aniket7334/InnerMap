@@ -113,6 +113,8 @@ async function runNext() {
     await pmtiles.closeArchive(outFile); // re-read the new file
     job.status = 'done';
     job.progress = 1;
+    // offline directions: build this area's road data next (in the background)
+    require('./roadDataService').requestBuild(job.areaId);
   } catch (err) {
     job.status = 'failed';
     job.error = `Could not get the map data: ${err.message}`;

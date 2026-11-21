@@ -37,6 +37,51 @@ function shared() {
 }
 
 // ------------------------------------------------------------------ local graph
+// ------------------------------------------------------------------ more graphs
+// Besides the main graph, every map area gets its own (services/roadDataService.js).
+const graphCaches = new Map(); // file -> cache
+function loadGraphFile(file) {
+  if (!fs.existsSync(file)) return null;
+  const stat = fs.statSync(file);
+  let c = graphCaches.get(file);
+  if (!c || c.mtime !== stat.mtimeMs) {
+    const graph = JSON.parse(zlib.gunzipSync(fs.readFileSync(file)).toString('utf8'));
+    c = { mtime: stat.mtimeMs, graph, size: stat.size, prepared: {}, subsets: new Map(), file };
+    graphCaches.set(file, c);
+    // keep memory in check: at most 3 big graphs loaded at once
+    while (graphCaches.size > 3) graphCaches.delete(graphCaches.keys().next().value);
+  }
+  return c;
+}
+/** Every graph this server has: [{ file, bounds, name }] (main first). */
+function allGraphs() {
+  const out = [];
+  const main = loadGraph();
+  if (main) out.push({ file: config.routingGraphFile, bounds: main.graph.bounds, name: main.graph.name });
+  for (const g of require('./roadDataService').readyGraphs()) out.push({ file: g.file, bounds: g.bounds, name: g.name, id: g.id });
+  return out;
+}
+const overlapArea = (a, b) => Math.max(0, Math.min(a.east, b.east) - Math.max(a.west, b.west)) * Math.max(0, Math.min(a.north, b.north) - Math.max(a.south, b.south));
+/** The graph that covers most of the bounds (null if none touches them). */
+function graphForBounds(bounds) {
+  let best = null;
+  let bestA = 0;
+  for (const g of allGraphs()) {
+    const a = overlapArea(g.bounds, bounds);
+    if (a > bestA) {
+      best = g;
+      bestA = a;
+    }
+  }
+  return best ? (best.file === config.routingGraphFile ? loadGraph() : loadGraphFile(best.file)) : null;
+}
+/** A graph containing both points (null if none). */
+function graphForPoints(a, b) {
+  const inside = (g, p) => p.lat >= g.bounds.south && p.lat <= g.bounds.north && p.lng >= g.bounds.west && p.lng <= g.bounds.east;
+  const g = allGraphs().find((x) => inside(x, a) && inside(x, b));
+  return g ? (g.file === config.routingGraphFile ? loadGraph() : loadGraphFile(g.file)) : null;
+}
+
 let graphCache = null;
 function loadGraph() {
   const file = config.routingGraphFile;
@@ -50,6 +95,13 @@ function loadGraph() {
 }
 
 function graphInfo() {
+  const roads = require('./roadDataService');
+  const extra = { coverage: allGraphs().map((g) => g.bounds), areas: roads.list() };
+  const info = mainGraphInfo();
+  return info.available ? { ...info, ...extra } : extra.coverage.length ? { available: true, ...extra } : { available: false, ...extra };
+}
+
+function mainGraphInfo() {
   const c = loadGraph();
   if (!c) return { available: false };
   const g = c.graph;
@@ -68,8 +120,8 @@ function graphInfo() {
 
 /** gzip-compressed JSON of the graph cut to bounds (cached, small LRU). */
 async function graphSubsetGz(bounds) {
-  const c = loadGraph();
-  if (!c) throw new HttpError(404, 'This server has no offline routing data. See backend/data/README.md.');
+  const c = graphForBounds(bounds);
+  if (!c) throw new HttpError(404, 'No road data for this area on the server yet. It is built automatically for every map area - try again in a few minutes.');
   const gb = c.graph.bounds;
   const b = {
     south: Math.max(bounds.south, gb.south),
@@ -92,7 +144,7 @@ async function graphSubsetGz(bounds) {
 }
 
 async function localRoute(profile, from, to) {
-  const c = loadGraph();
+  const c = graphForPoints(from, to) || loadGraph();
   if (!c) throw new HttpError(503, 'Local routing is not configured on this server.');
   const { prepare, route, covers } = await shared();
   if (!covers([c.graph.bounds], from.lat, from.lng) || !covers([c.graph.bounds], to.lat, to.lng)) {

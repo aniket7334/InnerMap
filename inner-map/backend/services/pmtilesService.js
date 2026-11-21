@@ -15,6 +15,7 @@ class NodeFileSource {
   constructor(filePath) {
     this.filePath = filePath;
     this.handle = null;
+    this.opening = null; // one open for all reads: simultaneous first reads must not open the file twice
   }
 
   getKey() {
@@ -22,7 +23,12 @@ class NodeFileSource {
   }
 
   async getBytes(offset, length) {
-    if (!this.handle) this.handle = await fsp.open(this.filePath, 'r');
+    // Without this, two tile requests at the same moment each opened the file and one handle was
+    // dropped unclosed - which Node.js 26 treats as a fatal error (the server crashed).
+    if (!this.handle) {
+      if (!this.opening) this.opening = fsp.open(this.filePath, 'r');
+      this.handle = await this.opening;
+    }
     const buf = Buffer.alloc(length);
     const { bytesRead } = await this.handle.read(buf, 0, length, offset);
     // Copy into a standalone ArrayBuffer of exactly the bytes read.
@@ -31,13 +37,16 @@ class NodeFileSource {
   }
 
   async close() {
-    if (this.handle) await this.handle.close().catch(() => {});
+    const h = this.handle || (this.opening ? await this.opening.catch(() => null) : null);
     this.handle = null;
+    this.opening = null;
+    if (h) await h.close().catch(() => {});
   }
 }
 
 // filePath -> { pm, header, metadata, mtime }
 const archives = new Map();
+const opening = new Map(); // filePath -> Promise of the entry being opened (shared by simultaneous requests)
 let infoCache = null;
 let infoKey = '';
 
@@ -50,13 +59,29 @@ async function openArchive(filePath) {
   }
   const cached = archives.get(filePath);
   if (cached && cached.mtime === stat.mtimeMs) return cached;
-  if (cached) await cached.pm.source.close?.();
-  const pm = new PMTiles(new NodeFileSource(filePath));
-  const header = await pm.getHeader();
-  const metadata = (await pm.getMetadata().catch(() => null)) || {};
-  const entry = { pm, header, metadata, mtime: stat.mtimeMs };
-  archives.set(filePath, entry);
-  return entry;
+  const key = `${filePath}|${stat.mtimeMs}`;
+  if (opening.has(key)) return opening.get(key);
+  const p = (async () => {
+    if (cached) await cached.pm.source.close?.();
+    const source = new NodeFileSource(filePath);
+    try {
+      const pm = new PMTiles(source);
+      const header = await pm.getHeader();
+      const metadata = (await pm.getMetadata().catch(() => null)) || {};
+      const entry = { pm, header, metadata, mtime: stat.mtimeMs };
+      archives.set(filePath, entry);
+      return entry;
+    } catch (err) {
+      await source.close();
+      throw err;
+    }
+  })();
+  opening.set(key, p);
+  try {
+    return await p;
+  } finally {
+    opening.delete(key);
+  }
 }
 
 async function closeArchive(filePath) {

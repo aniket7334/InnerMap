@@ -13,7 +13,7 @@ import Icon from '../components/Icon';
 import ProgressBar from '../components/ProgressBar';
 import { useInitialFit, unionBounds } from '../hooks/useInitialFit';
 import { providerForRegion } from '../maps/providers';
-import { cancelDownload, deleteRegion, resumeDownload, pauseDownload, isDownloading } from '../offline/downloadManager';
+import { cancelDownload, deleteRegion, resumeDownload, pauseDownload, isDownloading, downloadRoutingData } from '../offline/downloadManager';
 import { cleanupOrphanTiles } from '../offline/tileStore';
 import { listAllRegionIds } from '../offline/regionStore';
 import { formatBytes, getStorageEstimate } from '../offline/storage';
@@ -189,6 +189,18 @@ export default function MyMapsPage() {
       setMessage({ tone: 'error', text: err.message });
     } finally {
       setBusyId(null);
+    }
+  };
+
+  // road data for offline directions (from the server's road network for this area)
+  const onAddRoads = async (r) => {
+    setMessage({ tone: 'info', text: `Downloading road data for “${r.name}”…` });
+    try {
+      await downloadRoutingData(r.id);
+      setMessage({ tone: 'success', text: `Road data for “${r.name}” is ready - offline directions work there now.` });
+      refreshStorage();
+    } catch (err) {
+      setMessage({ tone: 'error', text: err.message });
     }
   };
 
@@ -368,7 +380,15 @@ export default function MyMapsPage() {
                   Boolean(source?.offlineAllowed) &&
                   (['interrupted', 'cancelled', 'partial', 'failed', 'paused'].includes(r.status) || (r.status === 'completed' && packsUnfinished));
                 const pct = r.tileCount ? Math.round((r.doneCount / r.tileCount) * 100) : 0;
-                const side = r.status === 'completed' ? formatBytes(totalSize(r)) : r.status === 'downloading' ? `${pct}%` : STATUS_LABEL[r.status] || r.status;
+                const side =
+                  r.routing?.status === 'downloading'
+                    ? 'Road data…'
+                    : r.status === 'completed'
+                      ? formatBytes(totalSize(r))
+                      : r.status === 'downloading'
+                        ? `${pct}%`
+                        : STATUS_LABEL[r.status] || r.status;
+                const noRoads = r.status === 'completed' && r.routing?.status !== 'completed' && r.routing?.status !== 'downloading';
                 const items = [
                   { label: 'Show on map', icon: 'map', onClick: () => setFitTo({ ...r.bounds }) },
                   ...(running
@@ -378,6 +398,9 @@ export default function MyMapsPage() {
                       ]
                     : []),
                   ...(canResume ? [{ label: 'Resume download', icon: 'refresh', onClick: () => onResume(r), disabled: status === 'offline' }] : []),
+                  ...(!running && r.status === 'completed' && r.routing?.status !== 'completed' && r.routing?.status !== 'downloading'
+                    ? [{ label: status === 'offline' ? 'Add road data (needs internet)' : 'Add road data', icon: 'route', onClick: () => onAddRoads(r), disabled: status === 'offline' }]
+                    : []),
                   { label: 'Delete', icon: 'trash', danger: true, onClick: () => onDelete(r), disabled: busyId === r.id },
                 ];
                 return (
@@ -386,7 +409,10 @@ export default function MyMapsPage() {
                       <span className="om-icon" aria-hidden="true">
                         <Icon name="map" size={16} />
                       </span>
-                      <span className="om-name">{r.name}</span>
+                      <span className="om-name">
+                        {r.name}
+                        {noRoads && <small className="om-noroads">No road data - directions won’t work offline</small>}
+                      </span>
                       <span className="om-size">{side}</span>
                     </button>
                     <RowMenu name={r.name} items={items} />

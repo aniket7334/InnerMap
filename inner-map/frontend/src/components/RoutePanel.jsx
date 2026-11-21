@@ -479,7 +479,7 @@ export default function RoutePanel({ userId, pick, setPick, picked, onResult, on
                 ? 'Calculated online from OpenStreetMap road data by the routing service.'
                 : coverage.length
                   ? `Calculated on this device from downloaded road data: ${coverage.map((c) => c.name).join(', ')}.`
-                  : 'No road data downloaded yet - offline directions need it (Download area → include road data).'}
+                  : 'No road data on this device yet - offline directions need it. While online: Offline maps → ⋮ next to the map → Add road data.'}
             </p>
 
             {pick && <p className="rp-hint">Click the map to choose the {pick === 'start' ? 'start' : 'destination'}.</p>}

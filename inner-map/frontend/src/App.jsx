@@ -27,6 +27,7 @@ import SettingsPage from './pages/SettingsPage';
 import NotFoundPage from './pages/NotFoundPage';
 import ConnectionNotice from './components/ConnectionNotice';
 import OfflineCenter from './components/OfflineCenter';
+import RoadDataSync from './components/RoadDataSync';
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
           <BrowserRouter>
             <ConnectionNotice />
             <OfflineCenter />
+            <RoadDataSync />
             <Routes>
               {/* Start screen: the 3D Earth (full screen, for everyone; saving needs an account) */}
               <Route path="/" element={<GlobeLoader />} />

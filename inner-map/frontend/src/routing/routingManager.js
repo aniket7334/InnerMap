@@ -75,7 +75,7 @@ async function offlineRoute(userId, profile, from, to) {
   const data = await listRoutingData(userId);
   if (!data.length) {
     throw new RouteError(
-      'No offline road data on this device. While online, download an area with “Include road data for offline directions”.',
+      'No offline road data on this device. While online, open Offline maps and choose ⋮ → Add road data next to your map (or tick “Include road data” when downloading).',
       { code: 'no-offline-data' }
     );
   }

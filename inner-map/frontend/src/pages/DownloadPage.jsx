@@ -190,10 +190,11 @@ export default function DownloadPage() {
   // Our own server's tiles need the API reachable; other providers just need internet.
   const sourceReachable = provider.servedByApp ? status === 'online' : status !== 'offline';
 
-  const rb = routingInfo?.offline?.available ? routingInfo.offline.bounds : null;
-  const routingAvailable = Boolean(
-    rb && target && target.south < rb.north && target.north > rb.south && target.west < rb.east && target.east > rb.west
-  );
+  // road data: the server's main graph and one per map area (built automatically)
+  const touches = (rb) => rb && target && target.south < rb.north && target.north > rb.south && target.west < rb.east && target.east > rb.west;
+  const coverageList = routingInfo?.offline?.coverage || (routingInfo?.offline?.available ? [routingInfo.offline.bounds] : []);
+  const routingAvailable = coverageList.some(touches);
+  const roadsPreparing = !routingAvailable ? (routingInfo?.offline?.areas || []).find((a) => touches(a.bounds) && (a.status === 'building' || a.status === 'queued')) : null;
 
   const canDownload =
     provider.offlineAllowed &&
@@ -510,9 +511,9 @@ export default function DownloadPage() {
           ) : (
             routingInfo && (
               <p className="muted tiny">
-                {routingInfo.offline?.available
-                  ? 'Road data for offline directions is not available for this area on the server.'
-                  : 'The server has no road data for offline directions (see backend/data/README.md).'}
+                {roadsPreparing
+                  ? `Road data for offline directions is being prepared on the server${roadsPreparing.progress != null ? ` (${Math.round(roadsPreparing.progress * 100)}%)` : ''}. Download the map now and add the road data later from Offline maps (⋮ → Add road data), or wait a few minutes.`
+                  : 'Road data for offline directions is not on the server for this area yet. It is prepared automatically for every map area the server has (Data area); for another place, prepare the area first.'}
               </p>
             )
           )}

@@ -16,6 +16,16 @@ app.use(
     origin(origin, cb) {
       // Allow same-origin / curl requests (no Origin header) and whitelisted front-ends.
       if (!origin || config.corsOrigins.includes(origin)) return cb(null, true);
+      // Inner Map's own front-ends, always: the website on Vercel (production and its preview
+      // deployments) and the Android app (Capacitor serves it as http://localhost).
+      if (
+        origin === 'https://inner-map-mu.vercel.app' ||
+        /^https:\/\/inner-map-[a-z0-9-]+-meka16\.vercel\.app$/.test(origin) ||
+        origin === 'http://localhost' ||
+        origin === 'capacitor://localhost'
+      ) {
+        return cb(null, true);
+      }
       // Development: any local dev server port (Vite moves to 5174, 5175... when 5173 is busy),
       // and the Android app (Capacitor serves the app as http://localhost without a port).
       if (config.nodeEnv !== 'production' && /^(https?|capacitor):\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {

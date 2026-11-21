@@ -54,6 +54,7 @@ import { useFeatureLayers } from '../hooks/useFeatureLayers';
 import { PROVIDERS, SATELLITE_SOURCE, HIRES_IMAGERY_SOURCE, TRAFFIC_SOURCE, HILLSHADE_SOURCE } from '../maps/providers';
 import { terrariumTerrain } from '../globe/TerrariumTerrainProvider';
 import { TransitImageryProvider } from '../globe/TransitImageryProvider';
+import { WorldMapImageryProvider, loadWorldCountries } from '../globe/WorldMapImageryProvider';
 import { loadWorldLabels, createWorldLabels } from '../globe/worldLabels';
 import { createLocalLabels } from '../globe/localLabels';
 import { nearestCity } from '../globe/exploreSearch';
@@ -275,6 +276,10 @@ export default function GlobePage() {
 
   const online = status !== 'offline';
   const serverReachable = status === 'online';
+  // Offline (no connection or offline mode) the Earth shows the street map: satellite imagery
+  // needs internet, the map comes from this device's downloaded areas. The saved choice is kept
+  // and comes back when online.
+  const viewStyle = online ? mapStyle : 'map';
 
   const vectorRegions = useMemo(() => regions.filter((r) => r.layerId === VECTOR?.layerId && r.doneCount > 0), [regions]);
   // Every area with street data: the server's cities, else this device's downloads.
@@ -633,13 +638,20 @@ export default function GlobePage() {
   }, [ready, showTraffic, online]);
 
   // ------------------------------------------------------------ imagery over Natural Earth
-  const effectiveBase = base === 'osm' && !online ? 'naturalEarth' : base === 'local' && !serverReachable ? 'naturalEarth' : base;
+  // offline: a map-style world (land, sea, borders) drawn on the device - satellite needs internet
+  const effectiveBase = !online ? 'worldMap' : base === 'local' && !serverReachable ? 'naturalEarth' : base;
+  // while online, load the world outlines once so they are cached for offline use
+  useEffect(() => {
+    if (ready && online) loadWorldCountries().catch(() => {});
+  }, [ready, online]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!ready || !viewer) return undefined;
     let layer = null;
-    if (effectiveBase === 'satellite') {
+    if (effectiveBase === 'worldMap') {
+      layer = new ImageryLayer(new WorldMapImageryProvider());
+    } else if (effectiveBase === 'satellite') {
       layer = new ImageryLayer(new SatelliteImageryProvider());
     } else if (effectiveBase === 'osm') {
       layer = new ImageryLayer(new OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }));
@@ -702,20 +714,20 @@ export default function GlobePage() {
   // ------------------------------------------------------------ roads + names / street map
   useEffect(() => {
     const viewer = viewerRef.current;
-    if (!ready || !viewer || !VECTOR || !detailBounds || mapStyle === 'clean') return undefined;
+    if (!ready || !viewer || !VECTOR || !detailBounds || viewStyle === 'clean') return undefined;
     // Over satellite imagery and online, places (temples, hospitals, ATMs...) get map symbols from the
     // local-names layer, so this layer leaves them out; offline it keeps its own place names.
-    const symbols = mapStyle !== 'map' && online;
+    const symbols = viewStyle !== 'map' && online;
     poisWithSymbolsRef.current = symbols;
     localLabelsRef.current?.refresh();
-    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds, typographyRef.current, mapStyle === 'map' ? 'map' : 'labels', { noPois: symbols }));
+    const layer = new ImageryLayer(new VectorImageryProvider(VECTOR, detailBounds, typographyRef.current, viewStyle === 'map' ? 'map' : 'labels', { noPois: symbols }));
     viewer.imageryLayers.add(layer);
     viewer.scene.requestRender();
     return () => {
       if (!viewer.isDestroyed()) viewer.imageryLayers.remove(layer, true);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mapStyle, online, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
+  }, [ready, viewStyle, online, detailBounds, status, mapLabelKey, vectorRegions.map((r) => `${r.id}:${r.status}`).join()]);
 
   // ------------------------------------------------------------ world names
   // Countries, states, cities, seas (Natural Earth, served by the app - works offline).
@@ -727,9 +739,9 @@ export default function GlobePage() {
   onlineRef.current = online;
   const poisWithSymbolsRef = useRef(false); // satellite + online: places are drawn with map symbols, not by the street-data layer
   const serverNamesRef = useRef(false); // the server's street-data layer draws its own local names
-  serverNamesRef.current = !!VECTOR && mapStyle !== 'clean';
+  serverNamesRef.current = !!VECTOR && viewStyle !== 'clean';
   // Hidden in "Clean", and in "Map" while the online OpenStreetMap map (which has its own names) shows.
-  const showWorldNames = mapStyle === 'labels' || (mapStyle === 'map' && !online);
+  const showWorldNames = viewStyle === 'labels' || (viewStyle === 'map' && !online);
   useEffect(() => {
     if (worldNames) return;
     loadWorldLabels()
@@ -858,7 +870,7 @@ export default function GlobePage() {
   // ------------------------------------------------------------ map settings
   // Type (satellite / map) x details (clean, exploration, everything, custom) -> the map style and
   // which overlays show. Everything is remembered on this device.
-  const mapType = mapStyle === 'map' ? 'map' : 'satellite';
+  const mapType = viewStyle === 'map' ? 'map' : 'satellite';
   const chooseType = (t) => {
     if (t === 'map') setMapStyle('map');
     else setMapStyle(namesPref ? 'labels' : 'clean');
@@ -1313,7 +1325,7 @@ export default function GlobePage() {
   };
 
   // ------------------------------------------------------------ menus (real actions only)
-  const styleItems = STYLES.map((s) => ({ label: s.label, checked: mapStyle === s.id, onClick: () => chooseStyle(s.id) }));
+  const styleItems = STYLES.map((s) => ({ label: s.label, checked: viewStyle === s.id, onClick: () => chooseStyle(s.id) }));
   const MENUS = [
     {
       id: 'file',
@@ -1592,7 +1604,7 @@ export default function GlobePage() {
 
       {/* bottom-left: map style */}
       <div className="earth-style">
-        <button type="button" className={`earth-style-thumb view-${mapStyle === 'map' ? 'default' : 'satellite'}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen} title="Map settings" aria-label="Map settings" data-settings-toggle="">
+        <button type="button" className={`earth-style-thumb view-${viewStyle === 'map' ? 'default' : 'satellite'}`} onClick={() => setStyleOpen((o) => !o)} aria-expanded={styleOpen} title="Map settings" aria-label="Map settings" data-settings-toggle="">
           <span className="view-swatch" />
         </button>
       </div>
@@ -1602,6 +1614,7 @@ export default function GlobePage() {
           onClose={() => setStyleOpen(false)}
           type={mapType}
           onType={chooseType}
+          offlineMap={!online}
           detail={detail}
           onDetail={chooseDetail}
           shown={{ names: namesPref, places: showPlaces, regions: showRegions, layers: showLayers }}

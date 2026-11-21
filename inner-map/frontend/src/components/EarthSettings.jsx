@@ -44,6 +44,7 @@ export default function EarthSettings({
   onVisual,
   online,
   hint,
+  offlineMap = false, // offline: the Earth shows the map from downloaded areas (satellite needs internet)
 }) {
   return (
     <aside className="earth-settings" role="dialog" aria-labelledby="earth-settings-title">
@@ -61,7 +62,16 @@ export default function EarthSettings({
               { id: 'satellite', label: 'Satellite', note: 'Imagery of the Earth from space', swatch: 'satellite' },
               { id: 'map', label: 'Map', note: 'Street map with names (OpenStreetMap; whole world when online)', swatch: 'default' },
             ].map((t) => (
-              <button key={t.id} type="button" role="radio" aria-checked={type === t.id} className={type === t.id ? 'on' : ''} onClick={() => onType(t.id)} title={t.note}>
+              <button
+                key={t.id}
+                type="button"
+                role="radio"
+                aria-checked={type === t.id}
+                className={type === t.id ? 'on' : ''}
+                onClick={() => onType(t.id)}
+                disabled={offlineMap && t.id === 'satellite'}
+                title={offlineMap && t.id === 'satellite' ? 'Satellite imagery needs internet' : t.note}
+              >
                 <span className={`earth-set-thumb view-${t.swatch}`}>
                   <span className="view-swatch" />
                 </span>
@@ -69,6 +79,7 @@ export default function EarthSettings({
               </button>
             ))}
           </div>
+          {offlineMap && <p className="earth-set-note">Offline: the Earth shows the street map of your downloaded areas. Satellite comes back when you are online.</p>}
         </section>
 
         <section>

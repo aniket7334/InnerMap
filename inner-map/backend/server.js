@@ -16,8 +16,9 @@ app.use(
     origin(origin, cb) {
       // Allow same-origin / curl requests (no Origin header) and whitelisted front-ends.
       if (!origin || config.corsOrigins.includes(origin)) return cb(null, true);
-      // Development: any local dev server port (Vite moves to 5174, 5175... when 5173 is busy).
-      if (config.nodeEnv !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+$/.test(origin)) {
+      // Development: any local dev server port (Vite moves to 5174, 5175... when 5173 is busy),
+      // and the Android app (Capacitor serves the app as http://localhost without a port).
+      if (config.nodeEnv !== 'production' && /^(https?|capacitor):\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin)) {
         return cb(null, true);
       }
       const err = new Error(`Origin ${origin} is not allowed. Add it to CORS_ORIGINS in backend/.env.`);
@@ -70,6 +71,10 @@ app.listen(config.port, async () => {
   console.log(`[server] Inner Map API listening on http://localhost:${config.port}`);
   // road data for offline directions: build it for map areas that do not have it yet
   setTimeout(() => require('./services/roadDataService').backfill(), 3000);
+  // hosting without a permanent disk: download missing map/road files first (DATA_BASE_URL)
+  await require('./services/dataFetchService')
+    .ensureDataFiles()
+    .catch((err) => console.error('[data]', err.message));
   try {
     await testConnection();
     console.log('[db] Connected to MySQL database', config.db.database);
@@ -81,6 +86,10 @@ app.listen(config.port, async () => {
     );
   } catch (err) {
     console.error(`[db] Could not connect to MySQL (${err.code || err.message}).`);
-    console.error('[db] Start MySQL from the XAMPP Control Panel and import database/inner_map_db.sql.');
+    console.error(
+      config.nodeEnv === 'production'
+        ? '[db] Check DATABASE_URL (or DB_HOST/DB_USER/DB_PASSWORD/DB_NAME) and DB_SSL for your hosted MySQL, and that its tables were created from database/inner_map_db.sql.'
+        : '[db] Start MySQL from the XAMPP Control Panel and import database/inner_map_db.sql.'
+    );
   }
 });

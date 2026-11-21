@@ -8,6 +8,7 @@ const pool = mysql.createPool({
   user: db.user,
   password: db.password,
   database: db.database,
+  ssl: db.ssl, // hosted MySQL (TLS); undefined for a local MySQL
   waitForConnections: true,
   connectionLimit: 10,
   decimalNumbers: true, // return DECIMAL columns as JS numbers
